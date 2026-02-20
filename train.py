@@ -27,6 +27,7 @@ from sam_lora_image_encoder import LoRA_Sam
 from segment_anything_lora import sam_model_registry
 from datasets import create_dataset, DATASET_REGISTRY
 from utils.losses import DiceLoss
+from utils.sam_checkpoint import get_sam_checkpoint
 
 
 # -------------------------------------------------------------------------
@@ -61,9 +62,8 @@ parser.add_argument("--warmup_iters", type=int, default=250,
 parser.add_argument("--rank", type=int, default=4, help="LoRA rank")
 parser.add_argument("--pretrain_model", type=str, default="vit_b",
                     choices=["vit_b", "vit_l", "vit_h"])
-parser.add_argument("--sam_checkpoint", type=str,
-                    default="pre_weight/sam_vit_b_01ec64.pth",
-                    help="Path to pretrained SAM checkpoint")
+parser.add_argument("--sam_checkpoint", type=str, default=None,
+                    help="Path to pretrained SAM checkpoint (default: auto-download to pre_weight/)")
 
 parser.add_argument("--save_iter", type=int, default=1000,
                     help="Save checkpoint every N iterations")
@@ -147,10 +147,18 @@ logging.info(f"Classes: {args.num_classes}, Ignore index: {ignore_index}, "
 # Model
 # -------------------------------------------------------------------------
 
+sam_checkpoint_path = get_sam_checkpoint(
+    path=args.sam_checkpoint,
+    model_type=args.pretrain_model,
+    download=True,
+)
+if sam_checkpoint_path is None:
+    logging.warning("No SAM checkpoint loaded; image encoder will train from random init.")
+
 model_sam, img_embedding_size = sam_model_registry[args.pretrain_model](
     image_size=args.image_size,
     num_classes=args.num_classes,
-    checkpoint=args.sam_checkpoint,
+    checkpoint=sam_checkpoint_path,
     pixel_mean=[0, 0, 0],
     pixel_std=[1, 1, 1],
 )
