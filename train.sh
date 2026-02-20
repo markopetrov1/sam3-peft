@@ -1,54 +1,34 @@
 #!/usr/bin/env bash
-# SAM LoRA fine-tuning for remote sensing segmentation.
+# SAM LoRA — train + evaluate with a YAML config.
 #
 # Usage:
-#   ./train.sh DATASET ROOT [GPU]
+#   ./train.sh configs/potsdam.yaml
+#   ./train.sh configs/vaihingen.yaml
 #
-# Examples:
-#   ./train.sh potsdam /data/potsdam_mmseg 0
-#   ./train.sh vaihingen /data/vaihingen_mmseg 0
-#
-# The dataset root should be in MMSeg format:
-#   root/
-#     img_dir/train/*.png
-#     img_dir/val/*.png
-#     ann_dir/train/*.png
-#     ann_dir/val/*.png
+# Optional overrides:
+#   ./train.sh configs/potsdam.yaml training.epochs=100 training.batch_size=4
 
 set -e
 cd "$(dirname "$0")"
 
-DATASET="${1:?Usage: $0 DATASET ROOT [GPU]}"
-ROOT="${2:?Usage: $0 DATASET ROOT [GPU]}"
-GPU="${3:-0}"
+CONFIG="${1:?Usage: $0 CONFIG_YAML [overrides...]}"
+shift
+OVERRIDES="$@"
 
 echo "=== SAM LoRA Training ==="
-echo "Dataset:  $DATASET"
-echo "Root:     $ROOT"
-echo "GPU:      $GPU"
+echo "Config: $CONFIG"
+[ -n "$OVERRIDES" ] && echo "Overrides: $OVERRIDES"
 echo ""
 
-# Train
-python3 train.py \
-    --dataset "$DATASET" \
-    --root "$ROOT" \
-    --gpu "$GPU" \
-    --exp "${DATASET}_lora" \
-    --num_classes 6 \
-    --batch_size 2 \
-    --max_iterations 20000 \
-    --lr 1e-3 \
-    --rank 4 \
-    --save_iter 1000 \
-    --val_iter 2000
+python3 train.py --config "$CONFIG" --override $OVERRIDES
 
-# Evaluate best checkpoint
+# Extract experiment name from config for eval
+EXP_DIR=$(python3 -c "
+from utils.config import load_config
+cfg = load_config('$CONFIG')
+print(f'{cfg.experiment.output_dir}/{cfg.experiment.name}')
+")
+
 echo ""
 echo "=== Evaluation ==="
-python3 test.py \
-    --dataset "$DATASET" \
-    --root "$ROOT" \
-    --gpu "$GPU" \
-    --checkpoint "experiments/${DATASET}_lora/best.pth" \
-    --save_preds \
-    --output_dir "experiments/${DATASET}_lora/predictions"
+python3 test.py --config "$CONFIG" --checkpoint "${EXP_DIR}/best.pth" --save_preds
