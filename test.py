@@ -23,6 +23,7 @@ from tqdm import tqdm
 from sam_lora_image_encoder import LoRA_Sam
 from segment_anything_lora import sam_model_registry
 from datasets import create_dataset, DATASET_REGISTRY
+from utils.sam_checkpoint import get_sam_checkpoint
 
 
 parser = argparse.ArgumentParser(description="SAM LoRA evaluation for remote sensing")
@@ -41,8 +42,8 @@ parser.add_argument("--num_workers", type=int, default=4)
 parser.add_argument("--rank", type=int, default=4)
 parser.add_argument("--pretrain_model", type=str, default="vit_b",
                     choices=["vit_b", "vit_l", "vit_h"])
-parser.add_argument("--sam_checkpoint", type=str,
-                    default="pre_weight/sam_vit_b_01ec64.pth")
+parser.add_argument("--sam_checkpoint", type=str, default=None,
+                    help="Path to base SAM weights (default: auto-download to pre_weight/)")
 
 parser.add_argument("--save_preds", action="store_true",
                     help="Save prediction PNGs to disk")
@@ -78,10 +79,16 @@ print(f"Classes: {class_names}")
 # Model
 # -------------------------------------------------------------------------
 
+sam_checkpoint_path = get_sam_checkpoint(
+    path=args.sam_checkpoint,
+    model_type=args.pretrain_model,
+    download=True,
+)
+
 model_sam, _ = sam_model_registry[args.pretrain_model](
     image_size=args.image_size,
     num_classes=args.num_classes,
-    checkpoint=args.sam_checkpoint,
+    checkpoint=sam_checkpoint_path,
     pixel_mean=[0, 0, 0],
     pixel_std=[1, 1, 1],
 )

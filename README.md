@@ -53,7 +53,7 @@ pip install -r requirements.txt
 
 ## Quick start
 
-1. **Download SAM checkpoint** and place at `pre_weight/sam_vit_b_01ec64.pth`
+1. **SAM checkpoint** — If you don't pass `--sam_checkpoint`, the script will try to download the pretrained SAM ViT-B checkpoint from Meta into `pre_weight/` the first time you train or test. To use a custom path or skip download, pass `--sam_checkpoint /path/to/sam_vit_b_01ec64.pth` or ensure the file already exists at `pre_weight/sam_vit_b_01ec64.pth`.
 
 2. **Train + evaluate:**
 
