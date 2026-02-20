@@ -1,0 +1,36 @@
+# SAM LoRA — Potsdam configuration
+# Usage: python train.py --config configs/potsdam.yaml
+
+experiment:
+  name: potsdam_lora
+  output_dir: experiments
+  seed: 1337
+  gpu: "0"
+
+dataset:
+  type: potsdam
+  root: /path/to/potsdam_mmseg   # CHANGE THIS to your dataset root
+  image_size: 1024
+  num_classes: 6
+  augment: true
+  exclude_classes: []
+
+model:
+  pretrain_model: vit_b            # vit_b | vit_l | vit_h
+  sam_checkpoint: null             # null = auto-download from Meta
+  rank: 4                          # LoRA rank
+
+training:
+  epochs: 50
+  batch_size: 2
+  num_workers: 4
+  lr: 1.0e-3
+  weight_decay: 0.01
+  warmup_epochs: 1                 # 0 to disable warmup
+  save_every: 5                    # save checkpoint every N epochs
+  val_every: 5                     # validate every N epochs
+  log_every: 20                    # log metrics every N steps (within epoch)
+
+resume:
+  checkpoint: null                 # path to LoRA .pth to resume from
+  epoch: 0                         # epoch number of resumed checkpoint

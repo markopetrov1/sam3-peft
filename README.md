@@ -7,90 +7,125 @@ semantic segmentation on ISPRS Potsdam and Vaihingen datasets.
 
 ```
 .
-├── train.py                    # LoRA fine-tuning training script
+├── train.py                    # Training script (epoch-based)
 ├── test.py                     # Evaluation script (mIoU, per-class IoU, OA)
 ├── train.sh                    # One-command train + eval
+├── configs/
+│   ├── potsdam.yaml            # Potsdam config
+│   └── vaihingen.yaml          # Vaihingen config
 ├── datasets.py                 # Potsdam / Vaihingen dataset loaders
 ├── sam_lora_image_encoder.py   # LoRA adapter for SAM image encoder
 ├── segment_anything_lora/      # Modified SAM (multi-class mask decoder)
 ├── utils/
-│   └── losses.py               # DiceLoss, FocalLoss, etc.
-├── pre_weight/                 # Place SAM checkpoint here (not tracked)
+│   ├── config.py               # YAML config loader
+│   ├── losses.py               # DiceLoss, FocalLoss, etc.
+│   └── sam_checkpoint.py       # Auto-download SAM checkpoints
+├── pre_weight/                 # SAM checkpoint (auto-downloaded, not tracked)
 └── experiments/                # Training outputs (not tracked)
 ```
 
+## Setup
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install torch torchvision
+pip install -r requirements.txt
+```
+
+## Configuration
+
+All settings live in a YAML config file. Copy and edit:
+
+```bash
+cp configs/potsdam.yaml configs/my_run.yaml
+# edit configs/my_run.yaml — set dataset.root, training.epochs, etc.
+```
+
+Key sections in the YAML:
+
+```yaml
+experiment:
+  name: potsdam_lora          # experiment output folder name
+  gpu: "0"
+
+dataset:
+  type: potsdam               # potsdam | vaihingen
+  root: /path/to/dataset      # MMSeg-format root
+  image_size: 1024
+  num_classes: 6
+
+model:
+  pretrain_model: vit_b       # vit_b | vit_l | vit_h
+  sam_checkpoint: null         # null = auto-download
+  rank: 4                      # LoRA rank
+
+training:
+  epochs: 50
+  batch_size: 2
+  lr: 1.0e-3
+  warmup_epochs: 1
+  save_every: 5               # checkpoint every N epochs
+  val_every: 5                # validate every N epochs
+```
+
+## Quick start
+
+1. Edit `configs/potsdam.yaml` — set `dataset.root` to your data path.
+
+2. Train:
+
+```bash
+python train.py --config configs/potsdam.yaml
+```
+
+3. Evaluate:
+
+```bash
+python test.py --config configs/potsdam.yaml \
+               --checkpoint experiments/potsdam_lora/best.pth
+```
+
+4. Or train + eval in one go:
+
+```bash
+./train.sh configs/potsdam.yaml
+```
+
+## CLI overrides
+
+Override any config value from the command line without editing the YAML:
+
+```bash
+python train.py --config configs/potsdam.yaml \
+    --override training.epochs=100 training.batch_size=4 training.lr=5e-4
+
+./train.sh configs/potsdam.yaml training.epochs=100
+```
+
+## SAM checkpoint
+
+The base SAM checkpoint (ViT-B, ~375 MB) is auto-downloaded from Meta on first
+run to `pre_weight/`. To use a local file, set `model.sam_checkpoint` in YAML
+or pass `--override model.sam_checkpoint=/path/to/sam.pth`.
+
+## How it works
+
+1. SAM's image encoder (ViT-B/L/H) is frozen
+2. LoRA adapters are injected into every attention QKV layer
+3. The mask decoder is randomly initialised for `num_classes` output channels
+4. Only LoRA weights + mask decoder are trained (CE + Dice loss)
+5. Best checkpoint is selected by validation mIoU
+
 ## Datasets
 
-Both datasets follow MMSeg directory layout:
+Both use MMSeg directory layout:
 
 ```
 root/
   img_dir/train/*.png
   img_dir/val/*.png
-  ann_dir/train/*.png
+  ann_dir/train/*.png       # pixel value = class ID
   ann_dir/val/*.png
 ```
 
-Annotations are single-channel PNGs:  0 = unlabeled/ignore, 1-6 = class IDs.
-
-| Dataset   | Classes | GSD  | Patch size |
-|-----------|---------|------|------------|
-| Potsdam   | 6       | 5 cm | 512×512    |
-| Vaihingen | 6       | 9 cm | 512×512    |
-
-**Classes (both):** impervious surface, building, low vegetation, tree, car, clutter
-
-## Setup
-
-```bash
-# Optional: create a virtual environment
-python -m venv .venv && source .venv/bin/activate  # Linux/macOS
-
-# Install PyTorch (with CUDA if needed), then project deps
-pip install torch torchvision  # or use --index-url for CUDA builds
-pip install -r requirements.txt
-```
-
-## Quick start
-
-1. **SAM checkpoint** — If you don't pass `--sam_checkpoint`, the script will try to download the pretrained SAM ViT-B checkpoint from Meta into `pre_weight/` the first time you train or test. To use a custom path or skip download, pass `--sam_checkpoint /path/to/sam_vit_b_01ec64.pth` or ensure the file already exists at `pre_weight/sam_vit_b_01ec64.pth`.
-
-2. **Train + evaluate:**
-
-```bash
-./train.sh potsdam /path/to/potsdam_mmseg 0
-./train.sh vaihingen /path/to/vaihingen_mmseg 0
-```
-
-3. **Or run scripts individually:**
-
-```bash
-# Train
-python train.py --dataset potsdam --root /path/to/potsdam_mmseg --gpu 0
-
-# Evaluate
-python test.py --dataset potsdam --root /path/to/potsdam_mmseg \
-               --checkpoint experiments/potsdam_lora/best.pth --gpu 0 --save_preds
-```
-
-## Key arguments
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--dataset` | potsdam | `potsdam` or `vaihingen` |
-| `--root` | (required) | Path to MMSeg dataset root |
-| `--image_size` | 1024 | SAM input resolution |
-| `--num_classes` | 6 | Semantic classes (excluding ignore) |
-| `--batch_size` | 2 | Batch size |
-| `--max_iterations` | 20000 | Training iterations |
-| `--lr` | 1e-3 | Peak learning rate (AdamW) |
-| `--rank` | 4 | LoRA rank |
-| `--val_iter` | 2000 | Validate every N iterations |
-
-## How it works
-
-1. SAM's image encoder (ViT-B) is frozen
-2. Low-rank LoRA adapters are injected into every attention QKV layer
-3. The mask decoder head is randomly initialised for `num_classes` output
-4. Only LoRA weights + mask decoder are trained (CE + Dice loss)
-5. Best checkpoint is selected by validation mIoU
+0 = unlabeled (ignore), 1–6 = impervious surface, building, low vegetation, tree, car, clutter.
