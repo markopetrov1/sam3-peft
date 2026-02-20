@@ -62,7 +62,7 @@ loader = DataLoader(
 )
 
 ignore_index = dataset.IGNORE_INDEX
-num_classes = ds_cfg.num_classes
+num_classes = len(dataset.active_classes)
 num_output_channels = num_classes + 1
 class_names = ["ignore"] + list(dataset.active_classes.values())
 

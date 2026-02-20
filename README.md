@@ -52,7 +52,8 @@ dataset:
   type: potsdam               # potsdam | vaihingen
   root: /path/to/dataset      # MMSeg-format root
   image_size: 1024
-  num_classes: 6
+  num_classes: 5              # informational; inferred from active classes
+  exclude_classes: [6]        # exclude clutter
 
 model:
   pretrain_model: vit_b       # vit_b | vit_l | vit_h
@@ -62,10 +63,11 @@ model:
 training:
   epochs: 50
   batch_size: 2
-  lr: 1.0e-3
-  warmup_epochs: 1
+  lr: 5.0e-4
+  warmup_epochs: 3
+  grad_clip_norm: 1.0
   save_every: 5               # checkpoint every N epochs
-  val_every: 5                # validate every N epochs
+  val_every: 1                # validate every N epochs
 ```
 
 ## Quick start
@@ -128,4 +130,6 @@ root/
   ann_dir/val/*.png
 ```
 
-0 = unlabeled (ignore), 1–6 = impervious surface, building, low vegetation, tree, car, clutter.
+0 = unlabeled (ignore). By default configs train **without clutter**:
+active classes are 1–5 (impervious surface, building, low vegetation, tree, car),
+while class 6 (clutter) is excluded and mapped to ignore.

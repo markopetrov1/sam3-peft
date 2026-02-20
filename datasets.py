@@ -107,9 +107,18 @@ class SegmentationDataset(Dataset):
                 f"  images found: {len(img_paths)}"
             )
 
+        # Build a robust label remap:
+        # - excluded classes -> IGNORE_INDEX
+        # - active classes   -> contiguous IDs [1..N]
+        original_active = sorted(
+            [k for k in self.ID2LABEL.keys() if k not in self.exclude_classes]
+        )
+        self.class_id_remap: Dict[int, int] = {
+            old_id: new_id for new_id, old_id in enumerate(original_active, start=1)
+        }
         self.active_classes: Dict[int, str] = {
-            k: v for k, v in self.ID2LABEL.items()
-            if k not in self.exclude_classes
+            new_id: self.ID2LABEL[old_id]
+            for old_id, new_id in self.class_id_remap.items()
         }
 
         print(f"[{self.DATASET_NAME}] {split}: {len(self.pairs)} samples, "
@@ -168,6 +177,13 @@ class SegmentationDataset(Dataset):
 
         if mask_np.ndim == 3:
             mask_np = mask_np[:, :, 0]
+
+        # Remap labels to contiguous class IDs and ignore excluded classes.
+        # Any class not in the remap table is treated as ignore.
+        remapped_mask = np.full_like(mask_np, fill_value=self.IGNORE_INDEX, dtype=np.uint8)
+        for old_id, new_id in self.class_id_remap.items():
+            remapped_mask[mask_np == old_id] = new_id
+        mask_np = remapped_mask
 
         if self.augment:
             pil_image, mask_np = self._augment(pil_image, mask_np)

@@ -127,8 +127,14 @@ val_loader = DataLoader(
 )
 
 ignore_index = train_ds.IGNORE_INDEX
-num_classes = ds_cfg.num_classes
+num_classes = len(train_ds.active_classes)
 num_output_channels = num_classes + 1
+
+if hasattr(ds_cfg, "num_classes") and ds_cfg.num_classes != num_classes:
+    logging.warning(
+        f"Config num_classes={ds_cfg.num_classes} does not match dataset active classes={num_classes}. "
+        f"Using inferred value: {num_classes}."
+    )
 
 steps_per_epoch = len(train_loader)
 total_steps = t_cfg.epochs * steps_per_epoch
@@ -136,6 +142,7 @@ total_steps = t_cfg.epochs * steps_per_epoch
 logging.info(f"Train: {len(train_ds)} samples ({steps_per_epoch} steps/epoch)")
 logging.info(f"Val:   {len(val_ds)} samples")
 logging.info(f"Epochs: {t_cfg.epochs}, Total steps: {total_steps}")
+logging.info(f"Active classes ({num_classes}): {train_ds.active_classes}")
 
 
 # -------------------------------------------------------------------------
@@ -234,7 +241,8 @@ def validate(epoch):
 
     ious = total_inter / (total_union + 1e-8)
     active = total_union > 0
-    miou = ious[active].mean().item()
+    active[ignore_index] = False
+    miou = ious[active].mean().item() if torch.any(active) else 0.0
     oa = total_correct / max(total_pixels, 1)
 
     per_class = {class_names[i]: f"{ious[i].item():.4f}"
@@ -273,8 +281,21 @@ for epoch in range(start_epoch, t_cfg.epochs):
         loss_dice = dice_loss_fn(masks_soft, labels.unsqueeze(1))
         loss = 0.5 * (loss_ce + loss_dice)
 
-        optimizer.zero_grad()
+        if not torch.isfinite(loss):
+            logging.warning(
+                f"Non-finite loss at epoch={epoch+1}, step={step}. "
+                f"Skipping this batch. ce={loss_ce.item():.6f}, dice={loss_dice.item():.6f}"
+            )
+            optimizer.zero_grad(set_to_none=True)
+            continue
+
+        optimizer.zero_grad(set_to_none=True)
         loss.backward()
+
+        grad_clip_norm = getattr(t_cfg, "grad_clip_norm", None)
+        if grad_clip_norm is not None and grad_clip_norm > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+
         optimizer.step()
 
         global_step += 1
