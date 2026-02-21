@@ -1,12 +1,17 @@
 """
-SAM LoRA fine-tuning for remote sensing semantic segmentation.
+SAM parameter-efficient fine-tuning for remote sensing semantic segmentation.
 
-Epoch-based training driven by a YAML config file.
+Supports multiple PEFT methods via a single entry point — the method is
+selected by ``model.method`` in the YAML config (default: lora).
+
+Supported methods:
+    - lora:            Low-Rank Adaptation of the image encoder
+    - linear_probing:  Frozen encoder + 1×1 conv segmentation head
 
 Usage:
-    python train.py --config configs/potsdam.yaml
-    python train.py --config configs/vaihingen.yaml
-    python train.py --config configs/potsdam.yaml --override training.epochs=100
+    python train.py --config configs/lora_potsdam.yaml
+    python train.py --config configs/linear_probing_potsdam.yaml
+    python train.py --config configs/lora_vaihingen.yaml --override training.epochs=100
 """
 
 import os
@@ -25,8 +30,8 @@ from torch.nn.modules.loss import CrossEntropyLoss
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 
-from sam_lora_image_encoder import LoRA_Sam
-from segment_anything_lora import sam_model_registry
+from peft import build_peft_model
+from segment_anything import sam_model_registry
 from datasets import create_dataset
 from utils.losses import DiceLoss
 from utils.sam_checkpoint import get_sam_checkpoint
@@ -37,7 +42,7 @@ from utils.config import load_config
 # CLI (minimal — everything else lives in the YAML)
 # -------------------------------------------------------------------------
 
-parser = argparse.ArgumentParser(description="SAM LoRA training")
+parser = argparse.ArgumentParser(description="SAM PEFT training")
 parser.add_argument("--config", type=str, required=True,
                     help="Path to YAML config file")
 parser.add_argument("--override", nargs="*", default=[],
@@ -47,7 +52,6 @@ cli = parser.parse_args()
 overrides = {}
 for item in cli.override:
     key, val = item.split("=", 1)
-    # auto-cast numbers and booleans
     for cast in (int, float):
         try:
             val = cast(val)
@@ -59,7 +63,7 @@ for item in cli.override:
             val = True
         elif val.lower() == "false":
             val = False
-        elif val.lower() == "null" or val.lower() == "none":
+        elif val.lower() in ("null", "none"):
             val = None
     overrides[key] = val
 
@@ -146,7 +150,7 @@ logging.info(f"Active classes ({num_classes}): {train_ds.active_classes}")
 
 
 # -------------------------------------------------------------------------
-# Model
+# Model  (method-agnostic via PEFT factory)
 # -------------------------------------------------------------------------
 
 m_cfg = cfg.model
@@ -167,10 +171,18 @@ model_sam, _ = sam_model_registry[m_cfg.pretrain_model](
     pixel_std=[1, 1, 1],
 )
 
-model = LoRA_Sam(model_sam, m_cfg.rank).cuda()
+method = getattr(m_cfg, "method", "lora")
+
+model = build_peft_model(
+    model_sam,
+    method=method,
+    num_classes=num_classes,
+    rank=getattr(m_cfg, "rank", 4),
+    lora_layer=getattr(m_cfg, "lora_layer", None),
+).cuda()
 
 if cfg.resume.checkpoint:
-    model.load_lora_parameters(cfg.resume.checkpoint)
+    model.load_parameters(cfg.resume.checkpoint)
     logging.info(f"Resumed from {cfg.resume.checkpoint}")
 
 model.train()
@@ -178,6 +190,7 @@ multimask_output = num_classes > 2
 
 trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 total = sum(p.numel() for p in model.parameters())
+logging.info(f"Method: {method}")
 logging.info(f"Parameters — trainable: {trainable:,} / total: {total:,} "
              f"({100 * trainable / total:.2f}%)")
 
@@ -324,16 +337,16 @@ for epoch in range(start_epoch, t_cfg.epochs):
         if miou > best_miou:
             best_miou = miou
             path = os.path.join(exp_dir, "best.pth")
-            model.save_lora_parameters(path)
+            model.save_parameters(path)
             logging.info(f"New best mIoU={best_miou:.4f} → {path}")
 
     # Save checkpoint
     if (epoch + 1) % t_cfg.save_every == 0 or (epoch + 1) == t_cfg.epochs:
         path = os.path.join(exp_dir, f"epoch_{epoch+1}.pth")
-        model.save_lora_parameters(path)
+        model.save_parameters(path)
         logging.info(f"Checkpoint → {path}")
 
 path = os.path.join(exp_dir, "last.pth")
-model.save_lora_parameters(path)
+model.save_parameters(path)
 logging.info(f"Training complete. Best mIoU: {best_miou:.4f}")
 writer.close()

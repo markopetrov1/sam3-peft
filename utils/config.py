@@ -3,7 +3,7 @@ YAML config loader with attribute-style access and CLI overrides.
 
 Usage:
     from utils.config import load_config
-    cfg = load_config("configs/potsdam.yaml")
+    cfg = load_config("configs/lora_potsdam.yaml")
     print(cfg.training.epochs)       # 50
     print(cfg.dataset.type)          # "potsdam"
 """

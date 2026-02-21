@@ -11,11 +11,13 @@ semantic segmentation on ISPRS Potsdam and Vaihingen datasets.
 ├── test.py                     # Evaluation script (mIoU, per-class IoU, OA)
 ├── train.sh                    # One-command train + eval
 ├── configs/
-│   ├── potsdam.yaml            # Potsdam config
-│   └── vaihingen.yaml          # Vaihingen config
+│   ├── lora_potsdam.yaml           # LoRA + Potsdam
+│   ├── lora_vaihingen.yaml        # LoRA + Vaihingen
+│   ├── linear_probing_potsdam.yaml
+│   └── linear_probing_vaihingen.yaml
 ├── datasets.py                 # Potsdam / Vaihingen dataset loaders
 ├── sam_lora_image_encoder.py   # LoRA adapter for SAM image encoder
-├── segment_anything_lora/      # Modified SAM (multi-class mask decoder)
+├── segment_anything/           # SAM code; mask decoder set for multi-class semantic seg
 ├── utils/
 │   ├── config.py               # YAML config loader
 │   ├── losses.py               # DiceLoss, FocalLoss, etc.
@@ -34,10 +36,11 @@ pip install -r requirements.txt
 
 ## Configuration
 
-All settings live in a YAML config file. Copy and edit:
+All settings live in a YAML config file. Configs are named `<method>_<dataset>.yaml`.
+Copy and edit:
 
 ```bash
-cp configs/potsdam.yaml configs/my_run.yaml
+cp configs/lora_potsdam.yaml configs/my_run.yaml
 # edit configs/my_run.yaml — set dataset.root, training.epochs, etc.
 ```
 
@@ -45,7 +48,7 @@ Key sections in the YAML:
 
 ```yaml
 experiment:
-  name: potsdam_lora          # experiment output folder name
+  name: lora_potsdam          # experiment output folder name
   gpu: "0"
 
 dataset:
@@ -57,8 +60,9 @@ dataset:
 
 model:
   pretrain_model: vit_b       # vit_b | vit_l | vit_h
-  sam_checkpoint: null         # null = auto-download
-  rank: 4                      # LoRA rank
+  sam_checkpoint: null        # null = auto-download
+  method: lora                 # lora | linear_probing
+  rank: 4                      # LoRA rank (for method: lora)
 
 training:
   epochs: 50
@@ -72,25 +76,26 @@ training:
 
 ## Quick start
 
-1. Edit `configs/potsdam.yaml` — set `dataset.root` to your data path.
+1. Edit the config you need (e.g. `configs/lora_potsdam.yaml`) — set `dataset.root` to your data path.
 
 2. Train:
 
 ```bash
-python train.py --config configs/potsdam.yaml
+python train.py --config configs/lora_potsdam.yaml
+# or: configs/linear_probing_potsdam.yaml, configs/lora_vaihingen.yaml, etc.
 ```
 
 3. Evaluate:
 
 ```bash
-python test.py --config configs/potsdam.yaml \
-               --checkpoint experiments/potsdam_lora/best.pth
+python test.py --config configs/lora_potsdam.yaml \
+               --checkpoint experiments/lora_potsdam/best.pth
 ```
 
 4. Or train + eval in one go:
 
 ```bash
-./train.sh configs/potsdam.yaml
+./train.sh configs/lora_potsdam.yaml
 ```
 
 ## CLI overrides
@@ -98,10 +103,10 @@ python test.py --config configs/potsdam.yaml \
 Override any config value from the command line without editing the YAML:
 
 ```bash
-python train.py --config configs/potsdam.yaml \
+python train.py --config configs/lora_potsdam.yaml \
     --override training.epochs=100 training.batch_size=4 training.lr=5e-4
 
-./train.sh configs/potsdam.yaml training.epochs=100
+./train.sh configs/lora_potsdam.yaml training.epochs=100
 ```
 
 ## SAM checkpoint
