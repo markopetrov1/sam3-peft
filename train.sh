@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# SAM LoRA — train + evaluate with a YAML config.
+# SAM PEFT — train + evaluate with a YAML config.
 #
 # Usage:
-#   ./train.sh configs/potsdam.yaml
-#   ./train.sh configs/vaihingen.yaml
+#   ./train.sh configs/lora_potsdam.yaml
+#   ./train.sh configs/linear_probing_potsdam.yaml
+#   ./train.sh configs/lora_vaihingen.yaml
 #
 # Optional overrides:
-#   ./train.sh configs/potsdam.yaml training.epochs=100 training.batch_size=4
+#   ./train.sh configs/lora_potsdam.yaml training.epochs=100 training.batch_size=4
 
 set -e
 cd "$(dirname "$0")"
@@ -15,7 +16,7 @@ CONFIG="${1:?Usage: $0 CONFIG_YAML [overrides...]}"
 shift
 OVERRIDES="$@"
 
-echo "=== SAM LoRA Training ==="
+echo "=== SAM PEFT Training ==="
 echo "Config: $CONFIG"
 [ -n "$OVERRIDES" ] && echo "Overrides: $OVERRIDES"
 echo ""

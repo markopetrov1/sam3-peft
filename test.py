@@ -1,12 +1,13 @@
 """
-Evaluate a trained SAM LoRA model on the validation set.
+Evaluate a trained SAM PEFT model on the validation set.
 
 Reads the same YAML config used for training.  Only requires
---checkpoint to point to the LoRA weights.
+--checkpoint to point to the saved weights.
 
 Usage:
-    python test.py --config configs/potsdam.yaml --checkpoint experiments/potsdam_lora/best.pth
-    python test.py --config configs/potsdam.yaml --checkpoint experiments/potsdam_lora/best.pth --save_preds
+    python test.py --config configs/lora_potsdam.yaml --checkpoint experiments/lora_potsdam/best.pth
+    python test.py --config configs/linear_probing_potsdam.yaml --checkpoint experiments/linear_probing_potsdam/best.pth
+    python test.py --config configs/lora_potsdam.yaml --checkpoint experiments/lora_potsdam/best.pth --save_preds
 """
 
 import os
@@ -18,8 +19,8 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from sam_lora_image_encoder import LoRA_Sam
-from segment_anything_lora import sam_model_registry
+from peft import build_peft_model
+from segment_anything import sam_model_registry
 from datasets import create_dataset
 from utils.sam_checkpoint import get_sam_checkpoint
 from utils.config import load_config
@@ -29,11 +30,11 @@ from utils.config import load_config
 # CLI
 # -------------------------------------------------------------------------
 
-parser = argparse.ArgumentParser(description="SAM LoRA evaluation")
+parser = argparse.ArgumentParser(description="SAM PEFT evaluation")
 parser.add_argument("--config", type=str, required=True,
                     help="Path to YAML config (same one used for training)")
 parser.add_argument("--checkpoint", type=str, required=True,
-                    help="Path to trained LoRA .pth checkpoint")
+                    help="Path to trained .pth checkpoint")
 parser.add_argument("--split", type=str, default="val")
 parser.add_argument("--save_preds", action="store_true",
                     help="Save prediction PNGs")
@@ -90,9 +91,18 @@ model_sam, _ = sam_model_registry[m_cfg.pretrain_model](
     pixel_std=[1, 1, 1],
 )
 
-model = LoRA_Sam(model_sam, m_cfg.rank).cuda()
-model.load_lora_parameters(cli.checkpoint)
-print(f"Loaded LoRA checkpoint: {cli.checkpoint}")
+method = getattr(m_cfg, "method", "lora")
+
+model = build_peft_model(
+    model_sam,
+    method=method,
+    num_classes=num_classes,
+    rank=getattr(m_cfg, "rank", 4),
+    lora_layer=getattr(m_cfg, "lora_layer", None),
+).cuda()
+
+model.load_parameters(cli.checkpoint)
+print(f"Loaded checkpoint ({method}): {cli.checkpoint}")
 model.eval()
 
 multimask_output = num_classes > 2
@@ -149,7 +159,7 @@ miou = per_class_iou[active_mask].mean()
 oa = np.diag(confusion).sum() / max(confusion.sum(), 1)
 
 print("\n" + "=" * 60)
-print(f"Results — {ds_cfg.type} ({cli.split})")
+print(f"Results — {ds_cfg.type} ({cli.split}), method={method}")
 print("=" * 60)
 print(f"{'Class':<25} {'IoU':>8}  {'Pixels':>12}")
 print("-" * 60)
