@@ -17,11 +17,8 @@ from tqdm import tqdm
 from peft import build_peft_model
 from datasets import create_dataset
 from utils.config import load_config
+from utils.run_log import setup_run_log, timestamp
 
-
-# -------------------------------------------------------------------------
-# CLI
-# -------------------------------------------------------------------------
 
 parser = argparse.ArgumentParser(description="SAM3 PEFT evaluation")
 parser.add_argument("--config", type=str, required=True,
@@ -38,10 +35,15 @@ cli = parser.parse_args()
 cfg = load_config(cli.config)
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.experiment.gpu)
 
-
-# -------------------------------------------------------------------------
-# Data
-# -------------------------------------------------------------------------
+# Timestamped eval run dir so multiple eval runs don't overwrite; full log to file
+exp_dir_base = os.path.join(cfg.experiment.output_dir, cfg.experiment.name)
+eval_dir = setup_run_log(
+    exp_dir_base,
+    f"eval_{timestamp()}",
+    log_filename="eval.log",
+    use_logging=False,
+)
+print(f"Eval run directory: {eval_dir}")
 
 ds_cfg = cfg.dataset
 
@@ -63,11 +65,6 @@ class_names = ["ignore"] + list(dataset.active_classes.values())
 print(f"Dataset: {ds_cfg.type} ({cli.split}), {len(dataset)} samples")
 print(f"Classes: {class_names}")
 
-
-# -------------------------------------------------------------------------
-# Model (SAM3-only path)
-# -------------------------------------------------------------------------
-
 m_cfg = cfg.model
 method = getattr(m_cfg, "method", "sam3_lora")
 model = build_peft_model(
@@ -88,16 +85,10 @@ model.eval()
 
 multimask_output = num_classes > 2
 
-
-# -------------------------------------------------------------------------
-# Inference + metrics
-# -------------------------------------------------------------------------
-
 confusion = np.zeros((num_output_channels, num_output_channels), dtype=np.int64)
 sample_idx = 0
 
-exp_dir = os.path.join(cfg.experiment.output_dir, cfg.experiment.name)
-pred_dir = cli.output_dir or os.path.join(exp_dir, "predictions")
+pred_dir = cli.output_dir or os.path.join(eval_dir, "predictions")
 if cli.save_preds:
     os.makedirs(pred_dir, exist_ok=True)
 
@@ -125,11 +116,6 @@ with torch.no_grad():
                     os.path.join(pred_dir, f"{sample_idx:05d}.png")
                 )
             sample_idx += 1
-
-
-# -------------------------------------------------------------------------
-# Compute metrics
-# -------------------------------------------------------------------------
 
 per_class_iou = np.zeros(num_output_channels)
 for c in range(num_output_channels):
