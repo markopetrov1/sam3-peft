@@ -11,7 +11,6 @@ Usage:
 """
 
 import os
-import sys
 import random
 import argparse
 import logging
@@ -28,13 +27,10 @@ from tqdm import tqdm
 
 from peft import build_peft_model
 from datasets import create_dataset
-from utils.losses import DiceLoss
 from utils.config import load_config
+from utils.losses import DiceLoss
+from utils.run_log import setup_run_log, timestamp
 
-
-# -------------------------------------------------------------------------
-# CLI (minimal — everything else lives in the YAML)
-# -------------------------------------------------------------------------
 
 parser = argparse.ArgumentParser(description="SAM3 PEFT training")
 parser.add_argument("--config", type=str, required=True,
@@ -43,23 +39,15 @@ cli = parser.parse_args()
 
 cfg = load_config(cli.config)
 
-
-# -------------------------------------------------------------------------
-# Setup
-# -------------------------------------------------------------------------
-
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.experiment.gpu)
 
-exp_dir = os.path.join(cfg.experiment.output_dir, cfg.experiment.name)
-os.makedirs(exp_dir, exist_ok=True)
-
-logging.basicConfig(
-    filename=os.path.join(exp_dir, "train.log"),
-    level=logging.INFO,
-    format="[%(asctime)s] %(message)s",
-    datefmt="%H:%M:%S",
+exp_dir = setup_run_log(
+    cfg.experiment.output_dir,
+    f"{cfg.experiment.name}_{timestamp()}",
+    log_filename="train.log",
+    use_logging=True,
 )
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+logging.info(f"Run directory: {exp_dir}")
 logging.info(f"Config:\n{cfg}")
 
 seed = cfg.experiment.seed
@@ -73,11 +61,6 @@ torch.cuda.manual_seed(seed)
 
 def worker_init_fn(worker_id):
     random.seed(seed + worker_id)
-
-
-# -------------------------------------------------------------------------
-# Data
-# -------------------------------------------------------------------------
 
 ds_cfg = cfg.dataset
 
@@ -123,10 +106,6 @@ logging.info(f"Epochs: {t_cfg.epochs}, Total steps: {total_steps}")
 logging.info(f"Active classes ({num_classes}): {train_ds.active_classes}")
 
 
-# -------------------------------------------------------------------------
-# Model  (SAM3-only path)
-# -------------------------------------------------------------------------
-
 m_cfg = cfg.model
 method = getattr(m_cfg, "method", "sam3_lora")
 if method not in ("sam3_lora", "sam3_linear_probing"):
@@ -161,20 +140,11 @@ logging.info(f"Method: {method}")
 logging.info(
     f"Parameters (before training) — trainable: {trainable:,} / total: {total:,} ({pct:.2f}%)"
 )
-
-
-# -------------------------------------------------------------------------
-# Mixed precision
-# -------------------------------------------------------------------------
+print(f"\nParameters — trainable: {trainable:,} / total: {total:,} ({pct:.2f}%)\n")
 
 use_amp = getattr(t_cfg, "amp", True)
 scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 logging.info(f"AMP (mixed precision): {'ON' if use_amp else 'OFF'}")
-
-
-# -------------------------------------------------------------------------
-# Optimizer & losses
-# -------------------------------------------------------------------------
 
 warmup_steps = t_cfg.warmup_epochs * steps_per_epoch
 
@@ -196,13 +166,7 @@ def get_lr(step):
     progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
     return t_cfg.lr * 0.5 * (1.0 + math.cos(math.pi * progress))
 
-
-# -------------------------------------------------------------------------
-# Validation
-# -------------------------------------------------------------------------
-
 class_names = ["ignore"] + list(train_ds.active_classes.values())
-
 
 @torch.no_grad()
 def validate(epoch):
@@ -244,11 +208,6 @@ def validate(epoch):
 
     model.train()
     return miou, oa
-
-
-# -------------------------------------------------------------------------
-# Training loop
-# -------------------------------------------------------------------------
 
 writer = SummaryWriter(os.path.join(exp_dir, "tb_logs"))
 start_epoch = cfg.resume.epoch
