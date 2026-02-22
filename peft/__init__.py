@@ -1,61 +1,55 @@
 """
-Parameter-Efficient Fine-Tuning (PEFT) methods for SAM.
+PEFT (parameter-efficient fine-tuning) package.
 
-Supported methods:
-    - lora:            Low-Rank Adaptation of the image encoder
-    - linear_probing:  Frozen encoder + 1×1 conv segmentation head
+Structure:
+  - lora.py          — Generic LoRA layers and apply_lora_to_model (model-agnostic).
+  - sam3_lora.py     — SAM3 + LoRA + segmentation head (uses .lora).
+  - sam3_linear_probing.py — Frozen SAM3 + linear head.
+  - (future) adapter.py, sam3_adapter.py — Adapter method + SAM3 wrapper.
 
-Usage:
-    from peft import build_peft_model
-
-    model = build_peft_model(sam, method="lora", num_classes=5, rank=4)
-    model = build_peft_model(sam, method="linear_probing", num_classes=5)
-
-    model.save_parameters("checkpoint.pth")
-    model.load_parameters("checkpoint.pth")
+Train/test use build_peft_model(method="sam3_lora" | "sam3_linear_probing" | ...).
 """
 
-from .lora import LoRA_Sam
-from .linear_probing import LinearProbingSam
+from .sam3_lora import SAM3LoRAForSegmentation
+from .sam3_linear_probing import SAM3LinearProbingForSegmentation
+from .lora import LoRAConfig, apply_lora_to_model, save_lora_weights, load_lora_weights, count_parameters
 
 PEFT_REGISTRY = {
-    "lora": LoRA_Sam,
-    "linear_probing": LinearProbingSam,
+    "sam3_lora": SAM3LoRAForSegmentation,
+    "sam3_linear_probing": SAM3LinearProbingForSegmentation,
 }
 
 
 def build_peft_model(sam_model, method, num_classes, **kwargs):
     """
-    Factory: wrap a base SAM model with the requested PEFT method.
-
-    Every returned model exposes:
-        - forward(batched_input, multimask_output, image_size) -> dict
-        - save_parameters(filename)
-        - load_parameters(filename)
-
-    Args:
-        sam_model: A Sam instance from segment_anything.
-        method:    PEFT method name (key in PEFT_REGISTRY).
-        num_classes: Number of active segmentation classes (excl. background).
-        **kwargs:  Method-specific args forwarded to the constructor
-                   (e.g. rank, lora_layer for LoRA).
-
-    Returns:
-        nn.Module with the unified interface described above.
+    Factory that returns a PEFT-wrapped model with a unified interface:
+        - forward(images, multimask_output, image_size) -> dict(masks=...)
+        - save_parameters(path)
+        - load_parameters(path)
     """
+    del sam_model  # SAM3 path builds its own model
+
     if method not in PEFT_REGISTRY:
         available = ", ".join(sorted(PEFT_REGISTRY.keys()))
-        raise ValueError(
-            f"Unknown PEFT method: '{method}'. Available: {available}"
+        raise ValueError(f"Unknown PEFT method: '{method}'. Available: {available}")
+
+    if method == "sam3_lora":
+        return SAM3LoRAForSegmentation(
+            num_classes=num_classes,
+            image_size=kwargs["image_size"],
+            sam3_checkpoint=kwargs.get("sam3_checkpoint"),
+            bpe_path=kwargs.get("bpe_path"),
+            rank=kwargs.get("rank", 8),
+            alpha=kwargs.get("alpha", 16),
+            dropout=kwargs.get("dropout", 0.0),
+        )
+    if method == "sam3_linear_probing":
+        return SAM3LinearProbingForSegmentation(
+            num_classes=num_classes,
+            image_size=kwargs["image_size"],
+            sam3_checkpoint=kwargs.get("sam3_checkpoint"),
+            bpe_path=kwargs.get("bpe_path"),
         )
 
-    if method == "lora":
-        rank = kwargs.get("rank", 4)
-        lora_layer = kwargs.get("lora_layer", None)
-        return LoRA_Sam(sam_model, r=rank, lora_layer=lora_layer)
+    return PEFT_REGISTRY[method](num_classes=num_classes, **kwargs)
 
-    if method == "linear_probing":
-        return LinearProbingSam(sam_model, num_classes=num_classes)
-
-    # Generic fallback for future methods
-    return PEFT_REGISTRY[method](sam_model, num_classes=num_classes, **kwargs)

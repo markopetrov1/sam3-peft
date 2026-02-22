@@ -1,140 +1,51 @@
-# SAM LoRA for Remote Sensing Segmentation
+# SAM3 Thesis Repo (SAM3-only)
 
-Fine-tune SAM (Segment Anything Model) with LoRA adapters for aerial/satellite
-semantic segmentation on ISPRS Potsdam and Vaihingen datasets.
+This repository is now focused on **SAM3** training for remote sensing segmentation.
+Legacy `segment_anything` (SAM v1) code has been removed.
 
-## Project structure
+## Current status
 
-```
-.
-├── train.py                    # Training script (epoch-based)
-├── test.py                     # Evaluation script (mIoU, per-class IoU, OA)
-├── train.sh                    # One-command train + eval
-├── configs/
-│   ├── lora_potsdam.yaml           # LoRA + Potsdam
-│   ├── lora_vaihingen.yaml        # LoRA + Vaihingen
-│   ├── linear_probing_potsdam.yaml
-│   └── linear_probing_vaihingen.yaml
-├── datasets.py                 # Potsdam / Vaihingen dataset loaders
-├── sam_lora_image_encoder.py   # LoRA adapter for SAM image encoder
-├── segment_anything/           # SAM code; mask decoder set for multi-class semantic seg
-├── utils/
-│   ├── config.py               # YAML config loader
-│   ├── losses.py               # DiceLoss, FocalLoss, etc.
-│   └── sam_checkpoint.py       # Auto-download SAM checkpoints
-├── pre_weight/                 # SAM checkpoint (auto-downloaded, not tracked)
-└── experiments/                # Training outputs (not tracked)
-```
+- **Methods:** `sam3_lora`, `sam3_linear_probing` (frozen backbone + linear head, see `15_SAM3_linearn_probing.ipynb`)
+- **Datasets:** Potsdam and Vaihingen (MMSeg layout)
+- **Entry points:** `train.py`, `test.py`, `train.sh`
+
+## Configs
+
+- `configs/sam3_lora_potsdam.yaml`, `configs/sam3_lora_vaihingen.yaml`
+- `configs/sam3_linear_probing_potsdam.yaml`, `configs/sam3_linear_probing_vaihingen.yaml`
+
+Set `dataset.root` in the chosen config before running.
 
 ## Setup
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install torch torchvision
-pip install -r requirements.txt
-```
+1. Install this repo dependencies (`requirements.txt`)
+2. SAM3 and PEFT code live **inside the repo**: `sam3/` (model + assets) and `peft/` (LoRA, linear probing, and wrappers). No external path is required.
 
-## Configuration
-
-All settings live in a YAML config file. Configs are named `<method>_<dataset>.yaml`.
-Copy and edit:
+## Train
 
 ```bash
-cp configs/lora_potsdam.yaml configs/my_run.yaml
-# edit configs/my_run.yaml — set dataset.root, training.epochs, etc.
+python train.py --config configs/sam3_lora_potsdam.yaml
 ```
 
-Key sections in the YAML:
-
-```yaml
-experiment:
-  name: lora_potsdam          # experiment output folder name
-  gpu: "0"
-
-dataset:
-  type: potsdam               # potsdam | vaihingen
-  root: /path/to/dataset      # MMSeg-format root
-  image_size: 1024
-  num_classes: 5              # informational; inferred from active classes
-  exclude_classes: [6]        # exclude clutter
-
-model:
-  pretrain_model: vit_b       # vit_b | vit_l | vit_h
-  sam_checkpoint: null        # null = auto-download
-  method: lora                 # lora | linear_probing
-  rank: 4                      # LoRA rank (for method: lora)
-
-training:
-  epochs: 50
-  batch_size: 2
-  lr: 5.0e-4
-  warmup_epochs: 3
-  grad_clip_norm: 1.0
-  save_every: 5               # checkpoint every N epochs
-  val_every: 1                # validate every N epochs
-```
-
-## Quick start
-
-1. Edit the config you need (e.g. `configs/lora_potsdam.yaml`) — set `dataset.root` to your data path.
-
-2. Train:
+## Evaluate
 
 ```bash
-python train.py --config configs/lora_potsdam.yaml
-# or: configs/linear_probing_potsdam.yaml, configs/lora_vaihingen.yaml, etc.
+python test.py --config configs/sam3_lora_potsdam.yaml \
+  --checkpoint experiments/sam3_lora_potsdam/best.pth
 ```
 
-3. Evaluate:
+## One-command train + eval
 
 ```bash
-python test.py --config configs/lora_potsdam.yaml \
-               --checkpoint experiments/lora_potsdam/best.pth
+./train.sh configs/sam3_lora_potsdam.yaml
 ```
 
-4. Or train + eval in one go:
+## Project layout
 
-```bash
-./train.sh configs/lora_potsdam.yaml
-```
-
-## CLI overrides
-
-Override any config value from the command line without editing the YAML:
-
-```bash
-python train.py --config configs/lora_potsdam.yaml \
-    --override training.epochs=100 training.batch_size=4 training.lr=5e-4
-
-./train.sh configs/lora_potsdam.yaml training.epochs=100
-```
-
-## SAM checkpoint
-
-The base SAM checkpoint (ViT-B, ~375 MB) is auto-downloaded from Meta on first
-run to `pre_weight/`. To use a local file, set `model.sam_checkpoint` in YAML
-or pass `--override model.sam_checkpoint=/path/to/sam.pth`.
-
-## How it works
-
-1. SAM's image encoder (ViT-B/L/H) is frozen
-2. LoRA adapters are injected into every attention QKV layer
-3. The mask decoder is randomly initialised for `num_classes` output channels
-4. Only LoRA weights + mask decoder are trained (CE + Dice loss)
-5. Best checkpoint is selected by validation mIoU
-
-## Datasets
-
-Both use MMSeg directory layout:
-
-```
-root/
-  img_dir/train/*.png
-  img_dir/val/*.png
-  ann_dir/train/*.png       # pixel value = class ID
-  ann_dir/val/*.png
-```
-
-0 = unlabeled (ignore). By default configs train **without clutter**:
-active classes are 1–5 (impervious surface, building, low vegetation, tree, car),
-while class 6 (clutter) is excluded and mapped to ignore.
+- `sam3/` — SAM3 model package (model_builder, `sam3/assets` for BPE). No external path.
+- `peft/` — All PEFT methods and SAM3 wrappers:
+  - `peft/lora.py` — Generic LoRA layers and `apply_lora_to_model` (model-agnostic).
+  - `peft/sam3_lora.py` — SAM3 + LoRA + segmentation head (uses `peft.lora`).
+  - `peft/sam3_linear_probing.py` — Frozen SAM3 + linear head.
+  - (future) `peft/adapter.py`, `peft/sam3_adapter.py` for adapter method.
+- `configs/` — Set `dataset.root` and optional `model.sam3_checkpoint` / `model.bpe_path` (null = in-repo defaults).

@@ -1,29 +1,21 @@
 #!/usr/bin/env bash
-# SAM PEFT — train + evaluate with a YAML config.
+# SAM3 PEFT — train + evaluate with a YAML config.
 #
 # Usage:
-#   ./train.sh configs/lora_potsdam.yaml
-#   ./train.sh configs/linear_probing_potsdam.yaml
-#   ./train.sh configs/lora_vaihingen.yaml
-#
-# Optional overrides:
-#   ./train.sh configs/lora_potsdam.yaml training.epochs=100 training.batch_size=4
+#   ./train.sh configs/sam3_lora_potsdam.yaml
+#   ./train.sh configs/sam3_linear_probing_potsdam.yaml
 
 set -e
 cd "$(dirname "$0")"
 
-CONFIG="${1:?Usage: $0 CONFIG_YAML [overrides...]}"
-shift
-OVERRIDES="$@"
+CONFIG="${1:?Usage: $0 CONFIG_YAML}"
 
-echo "=== SAM PEFT Training ==="
+echo "=== SAM3 PEFT Training ==="
 echo "Config: $CONFIG"
-[ -n "$OVERRIDES" ] && echo "Overrides: $OVERRIDES"
 echo ""
 
-python3 train.py --config "$CONFIG" --override $OVERRIDES
+python3 train.py --config "$CONFIG"
 
-# Extract experiment name from config for eval
 EXP_DIR=$(python3 -c "
 from utils.config import load_config
 cfg = load_config('$CONFIG')
