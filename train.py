@@ -15,6 +15,7 @@ import random
 import argparse
 import logging
 import math
+import time
 
 import numpy as np
 import torch
@@ -132,6 +133,11 @@ if cfg.resume.checkpoint:
 model.train()
 multimask_output = num_classes > 2
 
+# Reset peak memory stats so we measure only this run
+if torch.cuda.is_available():
+    torch.cuda.reset_peak_memory_stats()
+training_start_time = time.perf_counter()
+
 # Always log parameter counts before training
 trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 total = sum(p.numel() for p in model.parameters())
@@ -213,6 +219,9 @@ writer = SummaryWriter(os.path.join(exp_dir, "tb_logs"))
 start_epoch = cfg.resume.epoch
 global_step = start_epoch * steps_per_epoch
 best_miou = 0.0
+best_oa = 0.0  # OA = Overall Accuracy (pixel-wise); value at epoch where best mIoU was achieved
+mem_sum_mb = 0.0
+mem_n_samples = 0
 
 for epoch in range(start_epoch, t_cfg.epochs):
     model.train()
@@ -262,6 +271,11 @@ for epoch in range(start_epoch, t_cfg.epochs):
         epoch_loss += loss.item()
         pbar.set_postfix(loss=f"{loss.item():.4f}", lr=f"{lr:.2e}")
 
+        # Sample GPU memory for average (training-step level)
+        if torch.cuda.is_available():
+            mem_sum_mb += torch.cuda.memory_allocated() / (1024 ** 2)
+            mem_n_samples += 1
+
         if step % t_cfg.log_every == 0:
             writer.add_scalar("loss/total", loss.item(), global_step)
             writer.add_scalar("loss/ce", loss_ce.item(), global_step)
@@ -279,9 +293,10 @@ for epoch in range(start_epoch, t_cfg.epochs):
         writer.add_scalar("val/OA", oa, epoch + 1)
         if miou > best_miou:
             best_miou = miou
+            best_oa = oa
             path = os.path.join(exp_dir, "best.pth")
             model.save_parameters(path)
-            logging.info(f"New best mIoU={best_miou:.4f} → {path}")
+            logging.info(f"New best mIoU={best_miou:.4f}, OA={best_oa:.4f} → {path}")
 
     # Save checkpoint
     if (epoch + 1) % t_cfg.save_every == 0 or (epoch + 1) == t_cfg.epochs:
@@ -291,5 +306,50 @@ for epoch in range(start_epoch, t_cfg.epochs):
 
 path = os.path.join(exp_dir, "last.pth")
 model.save_parameters(path)
-logging.info(f"Training complete. Best mIoU: {best_miou:.4f}")
 writer.close()
+
+# ---------- Training summary (thesis / reporting) ----------
+# OA = Overall Accuracy: fraction of (non-ignore) pixels predicted correctly.
+training_elapsed_s = time.perf_counter() - training_start_time
+peak_mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2) if torch.cuda.is_available() else 0.0
+avg_mem_mb = mem_sum_mb / mem_n_samples if mem_n_samples else 0.0
+
+def _format_duration(seconds):
+    s = int(seconds)
+    m, s = divmod(s, 60)
+    h, m = divmod(m, 60)
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    if m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+summary_lines = [
+    "",
+    "=" * 60,
+    "TRAINING SUMMARY",
+    "=" * 60,
+    f"Method:              {method}",
+    f"Experiment:          {cfg.experiment.name}",
+    f"Dataset:             {ds_cfg.type} (train={len(train_ds)}, val={len(val_ds)})",
+    f"Epochs:              {t_cfg.epochs} (completed)",
+    f"Batch size:          {t_cfg.batch_size}",
+    f"Trainable params:    {trainable:,}",
+    f"Total params:        {total:,}",
+    f"Trainable %:        {pct:.2f}%",
+    f"Best mIoU:           {best_miou:.4f}",
+    f"Best OA (overall acc): {best_oa:.4f}",
+    f"Peak GPU memory:     {peak_mem_mb:.1f} MiB",
+    f"Avg GPU memory:      {avg_mem_mb:.1f} MiB",
+    f"Total time:          {_format_duration(training_elapsed_s)} ({training_elapsed_s:.1f} s)",
+    "=" * 60,
+]
+for line in summary_lines:
+    logging.info(line)
+print("\n" + "\n".join(summary_lines) + "\n")
+
+# Write same summary to a dedicated file for thesis / scripts
+summary_path = os.path.join(exp_dir, "training_summary.txt")
+with open(summary_path, "w", encoding="utf-8") as f:
+    f.write("\n".join(summary_lines) + "\n")
+logging.info(f"Summary written to {summary_path}")
