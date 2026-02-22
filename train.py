@@ -1,17 +1,13 @@
 """
-SAM parameter-efficient fine-tuning for remote sensing semantic segmentation.
-
-Supports multiple PEFT methods via a single entry point — the method is
-selected by ``model.method`` in the YAML config (default: lora).
+SAM3 PEFT fine-tuning for remote sensing semantic segmentation.
 
 Supported methods:
-    - lora:            Low-Rank Adaptation of the image encoder
-    - linear_probing:  Frozen encoder + 1×1 conv segmentation head
+    - sam3_lora
+    - sam3_linear_probing
 
 Usage:
-    python train.py --config configs/lora_potsdam.yaml
-    python train.py --config configs/linear_probing_potsdam.yaml
-    python train.py --config configs/lora_vaihingen.yaml --override training.epochs=100
+    python train.py --config configs/sam3_lora_potsdam.yaml
+    python train.py --config configs/sam3_linear_probing_potsdam.yaml
 """
 
 import os
@@ -31,10 +27,8 @@ from tensorboardX import SummaryWriter
 from tqdm import tqdm
 
 from peft import build_peft_model
-from segment_anything import sam_model_registry
 from datasets import create_dataset
 from utils.losses import DiceLoss
-from utils.sam_checkpoint import get_sam_checkpoint
 from utils.config import load_config
 
 
@@ -42,32 +36,12 @@ from utils.config import load_config
 # CLI (minimal — everything else lives in the YAML)
 # -------------------------------------------------------------------------
 
-parser = argparse.ArgumentParser(description="SAM PEFT training")
+parser = argparse.ArgumentParser(description="SAM3 PEFT training")
 parser.add_argument("--config", type=str, required=True,
                     help="Path to YAML config file")
-parser.add_argument("--override", nargs="*", default=[],
-                    help="Override config values, e.g. training.epochs=100 dataset.root=/data/x")
 cli = parser.parse_args()
 
-overrides = {}
-for item in cli.override:
-    key, val = item.split("=", 1)
-    for cast in (int, float):
-        try:
-            val = cast(val)
-            break
-        except ValueError:
-            pass
-    if isinstance(val, str):
-        if val.lower() == "true":
-            val = True
-        elif val.lower() == "false":
-            val = False
-        elif val.lower() in ("null", "none"):
-            val = None
-    overrides[key] = val
-
-cfg = load_config(cli.config, overrides)
+cfg = load_config(cli.config)
 
 
 # -------------------------------------------------------------------------
@@ -150,35 +124,26 @@ logging.info(f"Active classes ({num_classes}): {train_ds.active_classes}")
 
 
 # -------------------------------------------------------------------------
-# Model  (method-agnostic via PEFT factory)
+# Model  (SAM3-only path)
 # -------------------------------------------------------------------------
 
 m_cfg = cfg.model
-
-sam_ckpt = get_sam_checkpoint(
-    path=m_cfg.sam_checkpoint,
-    model_type=m_cfg.pretrain_model,
-    download=True,
-)
-if sam_ckpt is None:
-    logging.warning("No SAM checkpoint — training from random init.")
-
-model_sam, _ = sam_model_registry[m_cfg.pretrain_model](
-    image_size=ds_cfg.image_size,
-    num_classes=num_classes,
-    checkpoint=sam_ckpt,
-    pixel_mean=[0, 0, 0],
-    pixel_std=[1, 1, 1],
-)
-
-method = getattr(m_cfg, "method", "lora")
+method = getattr(m_cfg, "method", "sam3_lora")
+if method not in ("sam3_lora", "sam3_linear_probing"):
+    raise ValueError(
+        f"Unsupported method '{method}'. Use: sam3_lora or sam3_linear_probing"
+    )
 
 model = build_peft_model(
-    model_sam,
+    sam_model=None,
     method=method,
     num_classes=num_classes,
-    rank=getattr(m_cfg, "rank", 4),
-    lora_layer=getattr(m_cfg, "lora_layer", None),
+    image_size=ds_cfg.image_size,
+    sam3_checkpoint=getattr(m_cfg, "sam3_checkpoint", None),
+    bpe_path=getattr(m_cfg, "bpe_path", None),
+    rank=getattr(m_cfg, "rank", 8),
+    alpha=getattr(m_cfg, "alpha", 16),
+    dropout=getattr(m_cfg, "dropout", 0.0),
 ).cuda()
 
 if cfg.resume.checkpoint:
@@ -188,11 +153,23 @@ if cfg.resume.checkpoint:
 model.train()
 multimask_output = num_classes > 2
 
+# Always log parameter counts before training
 trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 total = sum(p.numel() for p in model.parameters())
+pct = 100.0 * trainable / total if total else 0.0
 logging.info(f"Method: {method}")
-logging.info(f"Parameters — trainable: {trainable:,} / total: {total:,} "
-             f"({100 * trainable / total:.2f}%)")
+logging.info(
+    f"Parameters (before training) — trainable: {trainable:,} / total: {total:,} ({pct:.2f}%)"
+)
+
+
+# -------------------------------------------------------------------------
+# Mixed precision
+# -------------------------------------------------------------------------
+
+use_amp = getattr(t_cfg, "amp", True)
+scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+logging.info(f"AMP (mixed precision): {'ON' if use_amp else 'OFF'}")
 
 
 # -------------------------------------------------------------------------
@@ -213,7 +190,7 @@ dice_loss_fn = DiceLoss(num_output_channels)
 
 
 def get_lr(step):
-    """Linear warmup → cosine decay."""
+    """Linear warmup -> cosine decay."""
     if warmup_steps > 0 and step < warmup_steps:
         return t_cfg.lr * step / warmup_steps
     progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
@@ -239,7 +216,8 @@ def validate(epoch):
         images = batch["image"].cuda()
         labels = batch["label"].cuda()
 
-        outputs = model(images, multimask_output, ds_cfg.image_size)
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            outputs = model(images, multimask_output, ds_cfg.image_size)
         preds = outputs["masks"].argmax(dim=1)
 
         valid = labels != ignore_index
@@ -286,13 +264,15 @@ for epoch in range(start_epoch, t_cfg.epochs):
         images = batch["image"].cuda()
         labels = batch["label"].cuda()
 
-        outputs = model(images, multimask_output, ds_cfg.image_size)
-        masks = outputs["masks"]
-        masks_soft = F.softmax(masks, dim=1)
+        # ---------- forward (under AMP autocast) ----------
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            outputs = model(images, multimask_output, ds_cfg.image_size)
+            masks = outputs["masks"]
+            masks_soft = F.softmax(masks, dim=1)
 
-        loss_ce = ce_loss_fn(masks, labels)
-        loss_dice = dice_loss_fn(masks_soft, labels.unsqueeze(1))
-        loss = 0.5 * (loss_ce + loss_dice)
+            loss_ce = ce_loss_fn(masks, labels)
+            loss_dice = dice_loss_fn(masks_soft, labels.unsqueeze(1))
+            loss = 0.5 * (loss_ce + loss_dice)
 
         if not torch.isfinite(loss):
             logging.warning(
@@ -302,15 +282,19 @@ for epoch in range(start_epoch, t_cfg.epochs):
             optimizer.zero_grad(set_to_none=True)
             continue
 
+        # ---------- backward (AMP-scaled) ----------
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+        scaler.scale(loss).backward()
 
         grad_clip_norm = getattr(t_cfg, "grad_clip_norm", None)
         if grad_clip_norm is not None and grad_clip_norm > 0:
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
 
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
+        # ---------- LR schedule ----------
         global_step += 1
         lr = get_lr(global_step)
         for pg in optimizer.param_groups:

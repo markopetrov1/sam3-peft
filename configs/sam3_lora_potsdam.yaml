@@ -1,0 +1,41 @@
+# SAM3 LoRA — Potsdam
+# Train with: python train.py --config configs/sam3_lora_potsdam.yaml
+
+experiment:
+  name: sam3_lora_potsdam
+  output_dir: experiments
+  seed: 1337
+  gpu: "0"
+
+dataset:
+  type: potsdam
+  root: /path/to/potsdam_mmseg   # CHANGE THIS to your dataset root
+  image_size: 1008               # SAM3 native image size
+  num_classes: 5
+  augment: true
+  exclude_classes: [6]
+
+model:
+  method: sam3_lora
+  sam3_checkpoint: null          # null => load official SAM3 checkpoint via HF
+  bpe_path: null                 # null => use in-repo sam3/assets/bpe_simple_vocab_16e6.txt.gz
+  rank: 8
+  alpha: 16
+  dropout: 0.0
+
+training:
+  epochs: 40
+  batch_size: 2
+  num_workers: 4
+  lr: 3.0e-4
+  weight_decay: 0.01
+  warmup_epochs: 2
+  grad_clip_norm: 1.0
+  amp: true                      # mixed precision (fp16); critical for fitting in GPU memory
+  save_every: 5
+  val_every: 1
+  log_every: 20
+
+resume:
+  checkpoint: null
+  epoch: 0

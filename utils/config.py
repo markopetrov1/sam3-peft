@@ -1,11 +1,11 @@
 """
-YAML config loader with attribute-style access and CLI overrides.
+YAML config loader with attribute-style access.
 
 Usage:
     from utils.config import load_config
-    cfg = load_config("configs/lora_potsdam.yaml")
-    print(cfg.training.epochs)       # 50
-    print(cfg.dataset.type)          # "potsdam"
+    cfg = load_config("configs/sam3_lora_potsdam.yaml")
+    print(cfg.training.epochs)
+    print(cfg.dataset.type)
 """
 
 import yaml

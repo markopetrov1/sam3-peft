@@ -1,13 +1,8 @@
 """
-Evaluate a trained SAM PEFT model on the validation set.
+Evaluate a trained SAM3 PEFT model on the validation set.
 
-Reads the same YAML config used for training.  Only requires
---checkpoint to point to the saved weights.
-
-Usage:
-    python test.py --config configs/lora_potsdam.yaml --checkpoint experiments/lora_potsdam/best.pth
-    python test.py --config configs/linear_probing_potsdam.yaml --checkpoint experiments/linear_probing_potsdam/best.pth
-    python test.py --config configs/lora_potsdam.yaml --checkpoint experiments/lora_potsdam/best.pth --save_preds
+Reads the same YAML config used for training. Only requires
+--checkpoint to point to saved weights.
 """
 
 import os
@@ -20,9 +15,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from peft import build_peft_model
-from segment_anything import sam_model_registry
 from datasets import create_dataset
-from utils.sam_checkpoint import get_sam_checkpoint
 from utils.config import load_config
 
 
@@ -30,7 +23,7 @@ from utils.config import load_config
 # CLI
 # -------------------------------------------------------------------------
 
-parser = argparse.ArgumentParser(description="SAM PEFT evaluation")
+parser = argparse.ArgumentParser(description="SAM3 PEFT evaluation")
 parser.add_argument("--config", type=str, required=True,
                     help="Path to YAML config (same one used for training)")
 parser.add_argument("--checkpoint", type=str, required=True,
@@ -72,33 +65,21 @@ print(f"Classes: {class_names}")
 
 
 # -------------------------------------------------------------------------
-# Model
+# Model (SAM3-only path)
 # -------------------------------------------------------------------------
 
 m_cfg = cfg.model
-
-sam_ckpt = get_sam_checkpoint(
-    path=m_cfg.sam_checkpoint,
-    model_type=m_cfg.pretrain_model,
-    download=True,
-)
-
-model_sam, _ = sam_model_registry[m_cfg.pretrain_model](
-    image_size=ds_cfg.image_size,
-    num_classes=num_classes,
-    checkpoint=sam_ckpt,
-    pixel_mean=[0, 0, 0],
-    pixel_std=[1, 1, 1],
-)
-
-method = getattr(m_cfg, "method", "lora")
-
+method = getattr(m_cfg, "method", "sam3_lora")
 model = build_peft_model(
-    model_sam,
+    sam_model=None,
     method=method,
     num_classes=num_classes,
-    rank=getattr(m_cfg, "rank", 4),
-    lora_layer=getattr(m_cfg, "lora_layer", None),
+    image_size=ds_cfg.image_size,
+    sam3_checkpoint=getattr(m_cfg, "sam3_checkpoint", None),
+    bpe_path=getattr(m_cfg, "bpe_path", None),
+    rank=getattr(m_cfg, "rank", 8),
+    alpha=getattr(m_cfg, "alpha", 16),
+    dropout=getattr(m_cfg, "dropout", 0.0),
 ).cuda()
 
 model.load_parameters(cli.checkpoint)
@@ -120,12 +101,15 @@ pred_dir = cli.output_dir or os.path.join(exp_dir, "predictions")
 if cli.save_preds:
     os.makedirs(pred_dir, exist_ok=True)
 
+use_amp = getattr(cfg.training, "amp", True)
+
 with torch.no_grad():
     for batch in tqdm(loader, desc="Evaluating"):
         images = batch["image"].cuda()
         labels = batch["label"].cuda()
 
-        outputs = model(images, multimask_output, ds_cfg.image_size)
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            outputs = model(images, multimask_output, ds_cfg.image_size)
         preds = outputs["masks"].argmax(dim=1)
 
         preds_np = preds.cpu().numpy()
