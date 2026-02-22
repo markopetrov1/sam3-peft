@@ -1,7 +1,4 @@
-# SAM3 Thesis Repo (SAM3-only)
-
 This repository is now focused on **SAM3** training for remote sensing segmentation.
-Legacy `segment_anything` (SAM v1) code has been removed.
 
 ## Current status
 
