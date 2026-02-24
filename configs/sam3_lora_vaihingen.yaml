@@ -9,7 +9,7 @@ experiment:
 
 dataset:
   type: vaihingen
-  root: /path/to/vaihingen_mmseg   # CHANGE THIS to your dataset root
+  root: /home/users/aleksandar.s/datasets/vaihingen_mmseg
   image_size: 1008                 # SAM3 native image size
   num_classes: 5
   augment: true
@@ -24,8 +24,8 @@ model:
   dropout: 0.0
 
 training:
-  epochs: 40
-  batch_size: 2
+  epochs: 50
+  batch_size: 24
   num_workers: 4
   lr: 3.0e-4
   weight_decay: 0.01
