@@ -3,9 +3,13 @@ Evaluate a trained SAM3 PEFT model on the validation set.
 
 Reads the same YAML config used for training. Only requires
 --checkpoint to point to saved weights.
+
+Always saves 10 random sample visualizations (input | ground truth | prediction)
+with dataset class colors to eval_dir/visualizations/.
 """
 
 import os
+import random
 import argparse
 
 import numpy as np
@@ -18,6 +22,29 @@ from peft import build_peft_model
 from datasets import create_dataset
 from utils.config import load_config
 from utils.run_log import setup_run_log, timestamp
+
+# Dataset class colors (ignore + 6 ISPRS classes: impervious, building, low veg, tree, car, clutter)
+CLASS_PALETTE = [
+    (64, 64, 64),    # 0 ignore
+    (255, 255, 255), # 1 impervious surface
+    (0, 0, 255),    # 2 building
+    (0, 255, 0),    # 3 low vegetation
+    (0, 128, 0),    # 4 tree
+    (255, 255, 0),  # 5 car
+    (255, 0, 0),    # 6 clutter
+]
+
+
+def mask_to_rgb(mask: np.ndarray, palette: list, num_classes: int) -> np.ndarray:
+    """Convert class index mask [H,W] to RGB [H,W,3] using palette."""
+    h, w = mask.shape
+    rgb = np.zeros((h, w, 3), dtype=np.uint8)
+    for c in range(min(num_classes + 1, len(palette))):
+        rgb[mask == c] = palette[c]
+    # Any out-of-range class id
+    for c in range(len(palette), mask.max() + 1):
+        rgb[mask == c] = (128, 128, 128)
+    return rgb
 
 
 parser = argparse.ArgumentParser(description="SAM3 PEFT evaluation")
@@ -116,6 +143,26 @@ with torch.no_grad():
                     os.path.join(pred_dir, f"{sample_idx:05d}.png")
                 )
             sample_idx += 1
+
+# Visualize 10 random samples (input | ground truth | prediction) with dataset class colors
+vis_dir = os.path.join(eval_dir, "visualizations")
+os.makedirs(vis_dir, exist_ok=True)
+n_vis = min(10, len(dataset))
+vis_indices = random.sample(range(len(dataset)), n_vis)
+for i, idx in enumerate(vis_indices):
+    sample = dataset[idx]
+    image = sample["image"].unsqueeze(0).cuda()
+    label_np = sample["label"].numpy()
+    with torch.no_grad():
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            out = model(image, multimask_output, ds_cfg.image_size)
+    pred_np = out["masks"].argmax(dim=1).squeeze(0).cpu().numpy()
+    img_np = image.squeeze(0).permute(1, 2, 0).cpu().numpy().clip(0, 255).astype(np.uint8)
+    gt_rgb = mask_to_rgb(label_np, CLASS_PALETTE, num_output_channels)
+    pred_rgb = mask_to_rgb(pred_np, CLASS_PALETTE, num_output_channels)
+    composite = np.concatenate([img_np, gt_rgb, pred_rgb], axis=1)
+    PILImage.fromarray(composite).save(os.path.join(vis_dir, f"sample_{i:02d}_idx_{idx}.png"))
+print(f"Saved {n_vis} visualizations to {vis_dir}/")
 
 per_class_iou = np.zeros(num_output_channels)
 for c in range(num_output_channels):
