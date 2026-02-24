@@ -4,7 +4,7 @@ This repository is now focused on **SAM3** training for remote sensing segmentat
 
 - **Methods:** `sam3_lora`, `sam3_linear_probing` (frozen backbone + linear head, see `15_SAM3_linearn_probing.ipynb`)
 - **Datasets:** Potsdam and Vaihingen (MMSeg layout)
-- **Entry points:** `train.py`, `test.py`, `train.sh`
+- **Entry points:** `train.py`, `test.py`, `test_tta.py`, `train.sh`
 
 ## Configs
 
@@ -31,6 +31,15 @@ python test.py --config configs/sam3_lora_potsdam.yaml \
   --checkpoint experiments/sam3_lora_potsdam/best.pth
 ```
 
+## Evaluate with test-time augmentation (TTA)
+
+Stronger metrics by merging predictions over 8 views (D4: identity, 90°/180°/270° rotations, horizontal flip and combinations):
+
+```bash
+python test_tta.py --config configs/sam3_lora_potsdam.yaml \
+  --checkpoint experiments/sam3_lora_potsdam/best.pth
+```
+
 ## One-command train + eval
 
 ```bash
@@ -46,3 +55,4 @@ python test.py --config configs/sam3_lora_potsdam.yaml \
   - `peft/sam3_linear_probing.py` — Frozen SAM3 + linear head.
   - (future) `peft/adapter.py`, `peft/sam3_adapter.py` for adapter method.
 - `configs/` — Set `dataset.root` and optional `model.sam3_checkpoint` / `model.bpe_path` (null = in-repo defaults).
+- `utils/tta.py` — Test-time augmentation (D4) and `run_tta()` for segmentation.
