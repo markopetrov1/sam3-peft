@@ -1,5 +1,5 @@
 """
-Evaluate a trained SAM3 PEFT model on the validation set.
+Evaluate a trained SAM3 PEFT model on the test set (unseen holdout).
 
 Reads the same YAML config used for training. Only requires
 --checkpoint to point to saved weights.
@@ -52,7 +52,8 @@ parser.add_argument("--config", type=str, required=True,
                     help="Path to YAML config (same one used for training)")
 parser.add_argument("--checkpoint", type=str, required=True,
                     help="Path to trained .pth checkpoint")
-parser.add_argument("--split", type=str, default="val")
+parser.add_argument("--split", type=str, default="test",
+                    help="Split to evaluate on: test (unseen, default) or val")
 parser.add_argument("--save_preds", action="store_true",
                     help="Save prediction PNGs")
 parser.add_argument("--output_dir", type=str, default=None,

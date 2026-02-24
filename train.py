@@ -223,6 +223,14 @@ best_oa = 0.0  # OA = Overall Accuracy (pixel-wise); value at epoch where best m
 mem_sum_mb = 0.0
 mem_n_samples = 0
 
+# Early stopping: stop if val mIoU does not improve for this many validation checks (0 = disabled)
+early_stopping_patience = getattr(t_cfg, "early_stopping_patience", 0)
+epochs_without_improvement = 0
+stopped_early = False
+
+if early_stopping_patience > 0:
+    logging.info(f"Early stopping: patience={early_stopping_patience} (val mIoU)")
+
 for epoch in range(start_epoch, t_cfg.epochs):
     model.train()
     epoch_loss = 0.0
@@ -294,15 +302,33 @@ for epoch in range(start_epoch, t_cfg.epochs):
         if miou > best_miou:
             best_miou = miou
             best_oa = oa
+            epochs_without_improvement = 0
             path = os.path.join(exp_dir, "best.pth")
             model.save_parameters(path)
             logging.info(f"New best mIoU={best_miou:.4f}, OA={best_oa:.4f} → {path}")
+        else:
+            epochs_without_improvement += 1
+
+        if early_stopping_patience > 0 and epochs_without_improvement >= early_stopping_patience:
+            logging.info(
+                f"Early stopping at epoch {epoch + 1}: no val mIoU improvement for "
+                f"{early_stopping_patience} validation(s). Best mIoU={best_miou:.4f} at earlier epoch."
+            )
+            stopped_early = True
+            break
 
     # Save checkpoint
     if (epoch + 1) % t_cfg.save_every == 0 or (epoch + 1) == t_cfg.epochs:
         path = os.path.join(exp_dir, f"epoch_{epoch+1}.pth")
         model.save_parameters(path)
         logging.info(f"Checkpoint → {path}")
+
+# When early stopping triggered, restore best checkpoint so last.pth equals best
+if stopped_early:
+    best_path = os.path.join(exp_dir, "best.pth")
+    if os.path.isfile(best_path):
+        model.load_parameters(best_path)
+        logging.info(f"Restored best checkpoint for final save: {best_path}")
 
 path = os.path.join(exp_dir, "last.pth")
 model.save_parameters(path)
@@ -324,6 +350,13 @@ def _format_duration(seconds):
         return f"{m}m {s}s"
     return f"{s}s"
 
+completed_epochs = epoch + 1  # last epoch we ran (loop variable is 0-based)
+epochs_line = f"Epochs:              {completed_epochs}/{t_cfg.epochs}"
+if stopped_early:
+    epochs_line += " (early stopping)"
+else:
+    epochs_line += " (completed)"
+
 summary_lines = [
     "",
     "=" * 60,
@@ -332,7 +365,7 @@ summary_lines = [
     f"Method:              {method}",
     f"Experiment:          {cfg.experiment.name}",
     f"Dataset:             {ds_cfg.type} (train={len(train_ds)}, val={len(val_ds)})",
-    f"Epochs:              {t_cfg.epochs} (completed)",
+    epochs_line,
     f"Batch size:          {t_cfg.batch_size}",
     f"Trainable params:    {trainable:,}",
     f"Total params:        {total:,}",

@@ -42,3 +42,6 @@ tb_logs/
 # OS
 .DS_Store
 Thumbs.db
+
+
+scripts/
