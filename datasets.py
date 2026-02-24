@@ -34,7 +34,7 @@ class SegmentationDataset(Dataset):
 
     Reads MMSeg-format datasets:
         root/
-          img_dir/{split}/*.png
+          img_dir/{split}/*.png   (split: train, val, or test)
           ann_dir/{split}/*.png
 
     Annotation masks are single-channel PNGs where pixel values = class IDs.
@@ -224,8 +224,10 @@ class PotsdamDataset(SegmentationDataset):
         root/
           img_dir/train/*.png
           img_dir/val/*.png
+          img_dir/test/*.png
           ann_dir/train/*.png
           ann_dir/val/*.png
+          ann_dir/test/*.png
     """
 
     DATASET_NAME = "Potsdam"
@@ -259,8 +261,10 @@ class VaihingenDataset(SegmentationDataset):
         root/
           img_dir/train/*.png
           img_dir/val/*.png
+          img_dir/test/*.png
           ann_dir/train/*.png
           ann_dir/val/*.png
+          ann_dir/test/*.png
     """
 
     DATASET_NAME = "Vaihingen"
@@ -301,7 +305,7 @@ def create_dataset(
     Args:
         dataset_type: "potsdam" or "vaihingen"
         root: Path to MMSeg-format dataset root.
-        split: "train" or "val".
+        split: "train", "val", or "test".
         image_size: Target resolution (default 1024 for SAM).
         augment: Enable augmentation (auto-disabled for val).
         exclude_classes: Class IDs to exclude.

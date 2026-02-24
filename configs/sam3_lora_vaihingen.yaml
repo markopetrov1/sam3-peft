@@ -35,6 +35,7 @@ training:
   save_every: 5
   val_every: 1
   log_every: 20
+  early_stopping_patience: 10   # stop if val mIoU does not improve for N validations (0 = disabled)
 
 resume:
   checkpoint: null
