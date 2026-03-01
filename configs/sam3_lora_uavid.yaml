@@ -1,19 +1,19 @@
-# SAM3 LoRA — Vaihingen
-# Train: python train.py --config configs/sam3_lora_vaihingen.yaml
+# SAM3 LoRA — UAVid
+# Train: python train.py --config configs/sam3_lora_uavid.yaml
 
 experiment:
-  name: sam3_lora_vaihingen
+  name: sam3_lora_uavid
   output_dir: experiments
   seed: 1337
   gpu: "0"
 
 dataset:
-  type: vaihingen
-  root: /home/users/aleksandar.s/datasets/vaihingen_mmseg
+  type: uavid
+  root: /home/users/aleksandar.s/datasets/uavid
   image_size: 1008
-  num_classes: 5
+  num_classes: 8
   augment: true
-  exclude_classes: [6]
+  exclude_classes: []
 
 model:
   method: sam3_lora
