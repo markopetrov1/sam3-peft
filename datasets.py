@@ -1,7 +1,7 @@
 """
 Remote Sensing Segmentation Datasets for SAM LoRA Fine-tuning.
 
-Supports ISPRS Potsdam and Vaihingen in MMSeg layout.
+Supports ISPRS Potsdam, Vaihingen, and UAVid.
 Returns (image, label) tensors ready for SAM input.
 
 Usage:
@@ -57,6 +57,14 @@ class SegmentationDataset(Dataset):
         "*.jpg", "*.JPG", "*.jpeg", "*.JPEG",
     )
 
+    @classmethod
+    def _resolve_dirs(cls, root: str, split: str) -> Optional[Tuple[str, str]]:
+        """
+        Optional override for dataset-specific layout. Return (img_dir, ann_dir) or None
+        to use default MMSeg layout root/img_subdir/split, root/ann_subdir/split.
+        """
+        return None
+
     def __init__(
         self,
         root: str,
@@ -73,8 +81,12 @@ class SegmentationDataset(Dataset):
         self.augment = augment and ("train" in split)
         self.exclude_classes = set(exclude_classes) if exclude_classes else set()
 
-        self.img_dir = os.path.join(root, img_subdir, split)
-        self.ann_dir = os.path.join(root, ann_subdir, split)
+        resolved = self._resolve_dirs(root, split)
+        if resolved is not None:
+            self.img_dir, self.ann_dir = resolved
+        else:
+            self.img_dir = os.path.join(root, img_subdir, split)
+            self.ann_dir = os.path.join(root, ann_subdir, split)
 
         if not os.path.isdir(self.img_dir):
             raise FileNotFoundError(f"Image directory not found: {self.img_dir}")
@@ -282,12 +294,97 @@ class VaihingenDataset(SegmentationDataset):
 
 
 # =============================================================================
+# UAVid
+# =============================================================================
+
+class UAVidDataset(SegmentationDataset):
+    """
+    UAVid — 8-class UAV semantic segmentation.
+
+    High-resolution UAV imagery (4K), urban street scenes. Train/val/test splits
+    as provided by the dataset.
+
+    Annotation encoding: pixel value = class ID
+        0 = unlabeled (ignore), 1–8 = classes
+
+    Dataset structure (split-first layout):
+        root/
+          train/images/*.png (or .jpg)
+          train/masks/*.png
+          val/images/
+          val/masks/
+          test/images/
+          test/masks/
+    """
+
+    DATASET_NAME = "UAVid"
+
+    @classmethod
+    def _resolve_dirs(cls, root: str, split: str) -> Optional[Tuple[str, str]]:
+        """UAVid uses root/{train,val,test}/images and root/{train,val,test}/masks."""
+        img_dir = os.path.join(root, split, "images")
+        ann_dir = os.path.join(root, split, "masks")
+        return (img_dir, ann_dir)
+    IGNORE_INDEX = 0
+    NUM_CLASSES = 8
+
+    ID2LABEL: Dict[int, str] = {
+        1: "building",
+        2: "road",
+        3: "static car",
+        4: "tree",
+        5: "low vegetation",
+        6: "human",
+        7: "moving car",
+        8: "background clutter",
+    }
+
+
+# =============================================================================
+# LoveDA
+# =============================================================================
+
+class LoveDADataset(SegmentationDataset):
+    """
+    LoveDA — 7-class (or 8) remote sensing semantic segmentation.
+
+    High spatial resolution images, urban and rural. MMSeg layout.
+
+    Annotation encoding: pixel value = class ID
+        0 = background / no-data, 1 = background, 2 = building, 3 = road,
+        4 = water, 5 = barren, 6 = forest, 7 = agriculture
+
+    Dataset structure:
+        root/
+          img_dir/train, val, test
+          ann_dir/train, val (no masks for test)
+    """
+
+    DATASET_NAME = "LoveDA"
+    IGNORE_INDEX = 0
+    NUM_CLASSES = 8
+
+    ID2LABEL: Dict[int, str] = {
+        0: "background",
+        1: "background",
+        2: "building",
+        3: "road",
+        4: "water",
+        5: "barren",
+        6: "forest",
+        7: "agriculture",
+    }
+
+
+# =============================================================================
 # Registry & Factory
 # =============================================================================
 
 DATASET_REGISTRY: Dict[str, type] = {
     "potsdam": PotsdamDataset,
     "vaihingen": VaihingenDataset,
+    "uavid": UAVidDataset,
+    "loveda": LoveDADataset,
 }
 
 
@@ -303,7 +400,7 @@ def create_dataset(
     Factory function to instantiate a dataset by name.
 
     Args:
-        dataset_type: "potsdam" or "vaihingen"
+        dataset_type: "potsdam", "vaihingen", "uavid", or "loveda"
         root: Path to MMSeg-format dataset root.
         split: "train", "val", or "test".
         image_size: Target resolution (default 1024 for SAM).

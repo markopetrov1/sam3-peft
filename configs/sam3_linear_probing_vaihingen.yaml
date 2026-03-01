@@ -1,5 +1,5 @@
-# SAM3 linear probing — Vaihingen (frozen backbone + linear head)
-# Train with: python train.py --config configs/sam3_linear_probing_vaihingen.yaml
+# SAM3 linear probing — Vaihingen
+# Train: python train.py --config configs/sam3_linear_probing_vaihingen.yaml
 
 experiment:
   name: sam3_linear_probing_vaihingen
@@ -10,15 +10,15 @@ experiment:
 dataset:
   type: vaihingen
   root: /home/users/aleksandar.s/datasets/vaihingen_mmseg
-  image_size: 1008                 # SAM3 native image size
+  image_size: 1008
   num_classes: 5
   augment: true
   exclude_classes: [6]
 
 model:
   method: sam3_linear_probing
-  sam3_checkpoint: null            # null => load official SAM3 checkpoint via HF
-  bpe_path: null                   # null => use in-repo sam3/assets
+  sam3_checkpoint: null
+  bpe_path: null
 
 training:
   epochs: 50
@@ -32,7 +32,7 @@ training:
   save_every: 5
   val_every: 1
   log_every: 20
-  early_stopping_patience: 10   # stop if val mIoU does not improve for N validations (0 = disabled)
+  early_stopping_patience: 10
 
 resume:
   checkpoint: null
