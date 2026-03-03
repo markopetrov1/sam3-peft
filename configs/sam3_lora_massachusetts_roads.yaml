@@ -1,0 +1,44 @@
+# SAM3 LoRA — Massachusetts Roads
+# Train: python train.py --config configs/sam3_lora_massachusetts_roads.yaml
+# Preprocess first: python /path/to/Massachusetts-Roads-Dataset/split.py /path/to/Massachusetts-Roads-Dataset -o /path/to/massachusetts_roads_mmseg
+# (Split is driven by metadata.csv in the dataset root.)
+
+experiment:
+  name: sam3_lora_massachusetts_roads
+  output_dir: experiments
+  seed: 1337
+  gpu: "0"
+
+dataset:
+  type: massachusetts_roads
+  root: /home/users/aleksandar.s/datasets/massachusetts_roads_mmseg
+  image_size: 1008
+  num_classes: 2
+  augment: true
+  exclude_classes: []
+
+model:
+  method: sam3_lora
+  sam3_checkpoint: null
+  bpe_path: null
+  rank: 8
+  alpha: 16
+  dropout: 0.0
+
+training:
+  epochs: 50
+  batch_size: 24
+  num_workers: 4
+  lr: 3.0e-4
+  weight_decay: 0.01
+  warmup_epochs: 2
+  grad_clip_norm: 1.0
+  amp: true
+  save_every: 5
+  val_every: 1
+  log_every: 20
+  early_stopping_patience: 10
+
+resume:
+  checkpoint: null
+  epoch: 0
