@@ -1,0 +1,39 @@
+# SAM3 linear probing — LoveDA
+# Train: python train.py --config configs/sam3_linear_probing_loveda.yaml
+
+experiment:
+  name: sam3_linear_probing_loveda
+  output_dir: experiments
+  seed: 1337
+  gpu: "0"
+
+dataset:
+  type: loveda
+  root: /home/users/aleksandar.s/datasets/loveDA_mmseg
+  image_size: 1008
+  num_classes: 7
+  augment: true
+  exclude_classes: [0]
+
+model:
+  method: sam3_linear_probing
+  sam3_checkpoint: null
+  bpe_path: null
+
+training:
+  epochs: 50
+  batch_size: 24
+  num_workers: 4
+  lr: 1.0e-3
+  weight_decay: 0.01
+  warmup_epochs: 2
+  grad_clip_norm: 1.0
+  amp: true
+  save_every: 5
+  val_every: 1
+  log_every: 20
+  early_stopping_patience: 10
+
+resume:
+  checkpoint: null
+  epoch: 0

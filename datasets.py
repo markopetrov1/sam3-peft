@@ -377,6 +377,65 @@ class LoveDADataset(SegmentationDataset):
 
 
 # =============================================================================
+# Massachusetts Buildings
+# =============================================================================
+
+class MassachusettsBuildingsDataset(SegmentationDataset):
+    """
+    Massachusetts Buildings Dataset — 2-class building extraction.
+
+    Aerial imagery 1500×1500, tiled to 512×512 patches (clip_size=512, stride=256).
+
+    Annotation encoding: 0 = background, 255 = building (single-channel PNG).
+    Dataset class remaps to contiguous IDs 1 = background, 2 = building.
+
+    Dataset structure (MMSeg format after split.py):
+        root/
+          img_dir/train, val, test
+          ann_dir/train, val, test
+    """
+
+    DATASET_NAME = "MassachusettsBuildings"
+    IGNORE_INDEX = 0
+    NUM_CLASSES = 2
+
+    ID2LABEL: Dict[int, str] = {
+        0: "background",
+        255: "building",
+    }
+
+
+# =============================================================================
+# Massachusetts Roads
+# =============================================================================
+
+class MassachusettsRoadsDataset(SegmentationDataset):
+    """
+    Massachusetts Roads Dataset — 2-class road extraction.
+
+    Aerial imagery 1500×1500 (TIFF), tiled to 512×512 patches via split.py.
+    Split is defined by metadata.csv (source of truth).
+
+    Annotation encoding: 0 = background, 255 = road (single-channel PNG).
+    Dataset class remaps to contiguous IDs 1 = background, 2 = road.
+
+    Dataset structure:
+        root/
+          img_dir/train, val, test
+          ann_dir/train, val, test
+    """
+
+    DATASET_NAME = "MassachusettsRoads"
+    IGNORE_INDEX = 0
+    NUM_CLASSES = 2
+
+    ID2LABEL: Dict[int, str] = {
+        0: "background",
+        255: "road",
+    }
+
+
+# =============================================================================
 # Registry & Factory
 # =============================================================================
 
@@ -385,6 +444,8 @@ DATASET_REGISTRY: Dict[str, type] = {
     "vaihingen": VaihingenDataset,
     "uavid": UAVidDataset,
     "loveda": LoveDADataset,
+    "massachusetts_buildings": MassachusettsBuildingsDataset,
+    "massachusetts_roads": MassachusettsRoadsDataset,
 }
 
 
@@ -400,7 +461,7 @@ def create_dataset(
     Factory function to instantiate a dataset by name.
 
     Args:
-        dataset_type: "potsdam", "vaihingen", "uavid", or "loveda"
+        dataset_type: "potsdam", "vaihingen", "uavid", "loveda", "massachusetts_buildings", or "massachusetts_roads"
         root: Path to MMSeg-format dataset root.
         split: "train", "val", or "test".
         image_size: Target resolution (default 1024 for SAM).
