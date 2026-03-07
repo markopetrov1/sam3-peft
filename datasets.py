@@ -436,6 +436,36 @@ class MassachusettsRoadsDataset(SegmentationDataset):
 
 
 # =============================================================================
+# WHU Building Dataset
+# =============================================================================
+
+class WHUBuildingDataset(SegmentationDataset):
+    """
+    WHU Building Dataset — 2-class building extraction.
+
+    Aerial/satellite imagery, 512×512 tiles. Layout: root/{train,val,test}/Image and root/{train,val,test}/Mask.
+    Annotation encoding: 0 = background, 255 = building (binary mask).
+    Dataset class remaps to contiguous IDs 1 = background, 2 = building.
+    """
+
+    DATASET_NAME = "WHUBuilding"
+    IGNORE_INDEX = 0
+    NUM_CLASSES = 2
+
+    @classmethod
+    def _resolve_dirs(cls, root: str, split: str) -> Optional[Tuple[str, str]]:
+        """WHU uses root/{train,val,test}/Image and root/{train,val,test}/Mask."""
+        img_dir = os.path.join(root, split, "Image")
+        ann_dir = os.path.join(root, split, "Mask")
+        return (img_dir, ann_dir)
+
+    ID2LABEL: Dict[int, str] = {
+        0: "background",
+        255: "building",
+    }
+
+
+# =============================================================================
 # Registry & Factory
 # =============================================================================
 
@@ -446,6 +476,7 @@ DATASET_REGISTRY: Dict[str, type] = {
     "loveda": LoveDADataset,
     "massachusetts_buildings": MassachusettsBuildingsDataset,
     "massachusetts_roads": MassachusettsRoadsDataset,
+    "whu_building": WHUBuildingDataset,
 }
 
 
@@ -461,7 +492,7 @@ def create_dataset(
     Factory function to instantiate a dataset by name.
 
     Args:
-        dataset_type: "potsdam", "vaihingen", "uavid", "loveda", "massachusetts_buildings", or "massachusetts_roads"
+        dataset_type: "potsdam", "vaihingen", "uavid", "loveda", "massachusetts_buildings", "massachusetts_roads", or "whu_building"
         root: Path to MMSeg-format dataset root.
         split: "train", "val", or "test".
         image_size: Target resolution (default 1024 for SAM).
