@@ -4,10 +4,12 @@ SAM3 PEFT fine-tuning for remote sensing semantic segmentation.
 Supported methods:
     - sam3_lora
     - sam3_linear_probing
+    - sam3_adapter
 
 Usage:
     python train.py --config configs/sam3_lora_potsdam.yaml
     python train.py --config configs/sam3_linear_probing_potsdam.yaml
+    python train.py --config configs/sam3_adapter_potsdam.yaml
 """
 
 import os
@@ -109,9 +111,9 @@ logging.info(f"Active classes ({num_classes}): {train_ds.active_classes}")
 
 m_cfg = cfg.model
 method = getattr(m_cfg, "method", "sam3_lora")
-if method not in ("sam3_lora", "sam3_linear_probing"):
+if method not in ("sam3_lora", "sam3_linear_probing", "sam3_adapter"):
     raise ValueError(
-        f"Unsupported method '{method}'. Use: sam3_lora or sam3_linear_probing"
+        f"Unsupported method '{method}'. Use: sam3_lora, sam3_linear_probing, or sam3_adapter"
     )
 
 model = build_peft_model(
@@ -121,9 +123,19 @@ model = build_peft_model(
     image_size=ds_cfg.image_size,
     sam3_checkpoint=getattr(m_cfg, "sam3_checkpoint", None),
     bpe_path=getattr(m_cfg, "bpe_path", None),
+    # LoRA kwargs (ignored by other methods)
     rank=getattr(m_cfg, "rank", 8),
     alpha=getattr(m_cfg, "alpha", 16),
     dropout=getattr(m_cfg, "dropout", 0.0),
+    # Adapter kwargs (ignored by other methods)
+    scale_factor=getattr(m_cfg, "scale_factor", 32),
+    input_type=getattr(m_cfg, "input_type", "fft"),
+    freq_nums=getattr(m_cfg, "freq_nums", 0.25),
+    prompt_type=getattr(m_cfg, "prompt_type", "highpass"),
+    tuning_stage=getattr(m_cfg, "tuning_stage", "1234"),
+    handcrafted_tune=getattr(m_cfg, "handcrafted_tune", True),
+    embedding_tune=getattr(m_cfg, "embedding_tune", True),
+    adaptor=getattr(m_cfg, "adaptor", "adaptor"),
 ).cuda()
 
 if cfg.resume.checkpoint:

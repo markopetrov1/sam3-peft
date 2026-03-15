@@ -1,0 +1,48 @@
+# SAM3 Adapter — Potsdam
+# Train with: python train.py --config configs/sam3_adapter_potsdam.yaml
+
+experiment:
+  name: sam3_adapter_potsdam
+  output_dir: experiments
+  seed: 1337
+  gpu: "0"
+
+dataset:
+  type: potsdam
+  root: /home/users/aleksandar.s/datasets/potsdam_mmseg
+  image_size: 1008               # SAM3 native image size
+  num_classes: 5
+  augment: true
+  exclude_classes: [6]
+
+model:
+  method: sam3_adapter
+  sam3_checkpoint: null          # null => load official SAM3 checkpoint via HF
+  bpe_path: null                 # null => use in-repo sam3/assets/bpe_simple_vocab_16e6.txt.gz
+  # Adapter hyper-parameters
+  scale_factor: 32               # channel reduction: embed_dim (1024) / scale_factor = 32
+  input_type: fft                # handcrafted feature type: fft | gaussian | srm | all
+  freq_nums: 0.25               # FFT mask radius fraction
+  prompt_type: highpass          # FFT filter: highpass | lowpass
+  tuning_stage: "1234"           # which ViT stages (1-4) get adapter prompts
+  handcrafted_tune: true         # use FFT handcrafted features
+  embedding_tune: true           # use embedding projections of ViT features
+  adaptor: adaptor               # MLP sharing: adaptor | fully_shared | fully_unshared
+
+training:
+  epochs: 50
+  batch_size: 24
+  num_workers: 4
+  lr: 3.0e-4
+  weight_decay: 0.01
+  warmup_epochs: 2
+  grad_clip_norm: 1.0
+  amp: true                      # mixed precision (fp16)
+  save_every: 5
+  val_every: 1
+  log_every: 20
+  early_stopping_patience: 10
+
+resume:
+  checkpoint: null
+  epoch: 0
