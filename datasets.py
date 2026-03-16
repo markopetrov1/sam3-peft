@@ -50,6 +50,8 @@ class SegmentationDataset(Dataset):
     ID2LABEL: Dict[int, str] = {}
     IGNORE_INDEX: int = 0
     NUM_CLASSES: int = 0
+    # Set False for UAV/oblique imagery where vertical flip is geometrically invalid
+    AUGMENT_VERTICAL_FLIP: bool = True
 
     IMG_EXTS = (
         "*.png", "*.PNG",
@@ -155,7 +157,7 @@ class SegmentationDataset(Dataset):
             image = TF.hflip(image)
             mask_pil = TF.hflip(mask_pil)
 
-        if random.random() > 0.5:
+        if self.AUGMENT_VERTICAL_FLIP and random.random() > 0.5:
             image = TF.vflip(image)
             mask_pil = TF.vflip(mask_pil)
 
@@ -318,6 +320,8 @@ class UAVidDataset(SegmentationDataset):
     """
 
     DATASET_NAME = "UAVid"
+    # UAV imagery has viewing angle; vertical flip creates unrealistic geometry
+    AUGMENT_VERTICAL_FLIP = False
 
     @classmethod
     def _resolve_dirs(cls, root: str, split: str) -> Optional[Tuple[str, str]]:

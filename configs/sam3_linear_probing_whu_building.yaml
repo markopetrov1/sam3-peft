@@ -1,0 +1,41 @@
+# SAM3 linear probing — WHU Building Dataset
+# Train: python train.py --config configs/sam3_linear_probing_whu_building.yaml
+# Dataset layout: root/train/Image, root/train/Mask; root/val/Image, root/val/Mask; root/test/Image, root/test/Mask
+# Path must match actual location (e.g. .../datasets/WHU).
+
+experiment:
+  name: sam3_linear_probing_whu_building
+  output_dir: experiments
+  seed: 1337
+  gpu: "0"
+
+dataset:
+  type: whu_building
+  root: /home/users/aleksandar.s/datasets/WHU
+  image_size: 1008
+  num_classes: 2
+  augment: true
+  exclude_classes: []
+
+model:
+  method: sam3_linear_probing
+  sam3_checkpoint: null
+  bpe_path: null
+
+training:
+  epochs: 50
+  batch_size: 24
+  num_workers: 4
+  lr: 1.0e-3
+  weight_decay: 0.01
+  warmup_epochs: 2
+  grad_clip_norm: 1.0
+  amp: true
+  save_every: 5
+  val_every: 1
+  log_every: 20
+  early_stopping_patience: 10
+
+resume:
+  checkpoint: null
+  epoch: 0

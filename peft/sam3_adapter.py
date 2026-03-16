@@ -73,7 +73,7 @@ class SAM3AdapterForSegmentation(nn.Module):
             p.requires_grad = False
 
         # ── Create PromptGenerator (trainable) ───────────────────────────
-        vit = self.sam3.backbone.visual.trunk
+        vit = self.sam3.backbone.vision_backbone.trunk
         embed_dim = vit.blocks[0].attn.qkv.in_features  # infer from ViT
         depth = len(vit.blocks)
         depth_per_stage = depth // 4
