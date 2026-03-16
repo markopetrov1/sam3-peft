@@ -1,0 +1,47 @@
+# SAM3 Adapter — LoveDA
+# Train: python train.py --config configs/sam3_adapter_loveda.yaml
+
+experiment:
+  name: sam3_adapter_loveda
+  output_dir: experiments
+  seed: 1337
+  gpu: "0"
+
+dataset:
+  type: loveda
+  root: /home/users/aleksandar.s/datasets/loveDA_mmseg
+  image_size: 1008
+  num_classes: 7
+  augment: true
+  exclude_classes: [0]
+
+model:
+  method: sam3_adapter
+  sam3_checkpoint: null
+  bpe_path: null
+  scale_factor: 32
+  input_type: fft
+  freq_nums: 0.25
+  prompt_type: highpass
+  tuning_stage: "1234"
+  handcrafted_tune: true
+  embedding_tune: true
+  adaptor: adaptor
+
+training:
+  epochs: 50
+  batch_size: 24
+  num_workers: 4
+  lr: 3.0e-4
+  weight_decay: 0.01
+  warmup_epochs: 2
+  grad_clip_norm: 1.0
+  amp: true
+  save_every: 5
+  val_every: 1
+  log_every: 20
+  early_stopping_patience: 10
+
+resume:
+  checkpoint: null
+  epoch: 0

@@ -3,7 +3,7 @@ This repository is now focused on **SAM3** training for remote sensing segmentat
 ## Current status
 
 - **Methods:** `sam3_lora`, `sam3_linear_probing` (frozen backbone + linear head, see `15_SAM3_linearn_probing.ipynb`)
-- **Datasets:** Potsdam and Vaihingen (MMSeg layout)
+- **Datasets:** Potsdam, Vaihingen, UAVid, LoveDA, Massachusetts Buildings/Roads, WHU Building (MMSeg-style layout). Input resolution: 1008×1008. Dataset details and split sizes: see `evaluation_results.md`.
 - **Entry points:** `train.py`, `test.py`, `test_tta.py`, `train.sh`
 
 ## Configs
