@@ -224,8 +224,10 @@ class PromptGenerator(nn.Module):
             if m.bias is not None:
                 m.bias.data.zero_()
 
+    @torch.amp.autocast("cuda", enabled=False)
     def fft(self, x: torch.Tensor, rate: float, prompt_type: str) -> torch.Tensor:
         """Apply FFT high/low-pass filter to extract frequency-domain features."""
+        x = x.float()
         mask = torch.zeros_like(x)
         w, h = x.shape[-2:]
         line = int((w * h * rate) ** 0.5 // 2)
