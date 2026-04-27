@@ -232,17 +232,3 @@ Joint image+mask augmentations (training only, [`datasets.py`](datasets.py) → 
 ## Loss
 
 Cross-entropy + Dice (1:1), with `ignore_index` honoured. Implementation: `utils/losses.py`.
-
----
-
-## Acknowledgements & licenses
-
-- **`sam3/` is vendored Meta SAM 3 code** and is © Meta Platforms, Inc. — used here under Meta's SAM 3 release terms. See file headers for license notices.
-- The adapter implementation in `peft/adapter.py` / `peft/sam3_adapter.py` is adapted from the SAM-Adapter line of work (Chen et al., "SAM-Adapter: Adapting Segment Anything in Underperformed Scenes").
-- LoRA layers in `peft/lora.py` follow the formulation from Hu et al., "LoRA: Low-Rank Adaptation of Large Language Models" (2021).
-
-The first-party code in this repository (entry points, `peft/` PEFT wrappers, `datasets.py`, `utils/`, `scripts/`, `configs/`) is released under the MIT license — see `LICENSE` if present, otherwise the wrapper code is provided as-is for research and educational use.
-
-## Citation
-
-If you use this code, please cite the upstream works (SAM 3, LoRA, SAM-Adapter) and link back to this repository.
