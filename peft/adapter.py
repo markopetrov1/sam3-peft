@@ -243,6 +243,7 @@ class PromptGenerator(nn.Module):
         inv = torch.fft.ifft2(fft_hires, norm="forward").real
         return torch.abs(inv)
 
+    @torch.amp.autocast("cuda", enabled=False)
     def init_handcrafted(
         self, x: torch.Tensor
     ) -> Tuple[Optional[torch.Tensor], ...]:
@@ -251,6 +252,7 @@ class PromptGenerator(nn.Module):
 
         Returns features in [B, C, H, W] format for correct spatial resizing.
         """
+        x = x.float()
         if self.input_type == 'fft':
             x = self.fft(x, self.freq_nums, self.prompt_type)
         elif self.input_type == 'all':
@@ -344,8 +346,8 @@ def resize_handcrafted(
         feature = F.interpolate(
             feature.float(), size=(target_h, target_w),
             mode='bilinear', align_corners=False,
-        ).to(feature.dtype)
-    return feature.permute(0, 2, 3, 1)  # [B, C, H, W] -> [B, H, W, C]
+        )
+    return feature.float().permute(0, 2, 3, 1)  # [B, C, H, W] -> [B, H, W, C]
 
 
 def inject_adapter_into_vit(

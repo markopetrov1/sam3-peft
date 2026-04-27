@@ -1,58 +1,248 @@
-This repository is now focused on **SAM3** training for remote sensing segmentation.
+# SAM3-PEFT
 
-## Current status
+**Parameter-efficient fine-tuning of SAM 3 for remote-sensing semantic segmentation.**
 
-- **Methods:** `sam3_lora`, `sam3_linear_probing` (frozen backbone + linear head, see `15_SAM3_linearn_probing.ipynb`)
-- **Datasets:** Potsdam, Vaihingen, UAVid, LoveDA, Massachusetts Buildings/Roads, WHU Building (MMSeg-style layout). Input resolution: 1008×1008. Dataset details and split sizes: see `evaluation_results.md`.
-- **Entry points:** `train.py`, `test.py`, `test_tta.py`, `train.sh`
+Three PEFT methods (LoRA, frozen-backbone Linear Probing, FFT-prompt Adapter) on top of a vendored Meta SAM 3 image backbone, evaluated on seven public remote-sensing datasets (aerial / UAV / satellite). All training and evaluation runs from YAML configs.
 
-## Configs
+![Potsdam test sample — SAM3 + LoRA (mIoU 0.88)](assets/example_potsdam_lora.png)
 
-- `configs/sam3_lora_potsdam.yaml`, `configs/sam3_lora_vaihingen.yaml`
-- `configs/sam3_linear_probing_potsdam.yaml`, `configs/sam3_linear_probing_vaihingen.yaml`
+*Inference on a Potsdam test image. Best run in this repo: SAM3 + LoRA on Potsdam, mIoU **0.8806**.*
 
-Set `dataset.root` in the chosen config before running.
+---
+
+## Methods
+
+| Method                | Module                            | Trainable params *(MA Buildings run)* | % of total |
+|-----------------------|-----------------------------------|--------------------------------------:|----------:|
+| `sam3_linear_probing` | `peft/sam3_linear_probing.py`     |                             2,299,652 |    0.50 % |
+| `sam3_lora`           | `peft/sam3_lora.py` + `peft/lora.py` |                          4,539,139 |    0.98 % |
+| `sam3_adapter`        | `peft/sam3_adapter.py` + `peft/adapter.py` |                       337,891 |    0.07 % |
+
+A common factory `peft.build_peft_model(method=...)` returns a wrapper with a unified interface (`forward(images, multimask_output, image_size) → {"masks": ...}`, `save_parameters`, `load_parameters`).
+
+## Datasets
+
+All inputs are resized to **1008×1008** for both training and evaluation.
+
+| Dataset                  | Type                | Train | Val   | Test  |
+|--------------------------|---------------------|------:|------:|------:|
+| Potsdam (ISPRS)          | aerial 5cm GSD      | 2,765 |   691 | 2,016 |
+| Vaihingen (ISPRS)        | aerial 9cm GSD      |   276 |    68 |   398 |
+| UAVid                    | UAV oblique 4K      | 8,000 | 2,800 |   150 |
+| LoveDA                   | satellite (urban+rural) | 2,522 | 1,669 |   —   |
+| Massachusetts Buildings  | aerial 1m GSD       | 1,233 |    36 |    90 |
+| Massachusetts Roads      | aerial 1m GSD       | 9,972 |   126 |   441 |
+| WHU Building             | aerial 0.3m GSD     | 5,732 | 1,228 | 1,228 |
+
+Datasets follow the MMSeg-style layout `root/img_dir/{split}/` + `root/ann_dir/{split}/`, except UAVid and Massachusetts which use `root/{split}/{images,masks}/`. Loaders live in [`datasets.py`](datasets.py).
+
+## Results
+
+Best validation checkpoint, evaluated on the held-out test split (LoveDA reports val numbers since the public test set is unlabeled):
+
+| Dataset                  | Linear Probing |  LoRA  | Adapter |
+|--------------------------|:--------------:|:------:|:-------:|
+| Potsdam                  |     0.7186     | 0.8806 | 0.8735  |
+| Vaihingen                |     0.6917     | 0.8326 | 0.8152  |
+| UAVid                    |     0.4554     | 0.6106 | 0.6619  |
+| LoveDA                   |     0.4237     | 0.5663 | 0.5518  |
+| Massachusetts Buildings  |     0.7381     | 0.8278 | 0.8087  |
+| Massachusetts Roads      |     0.7048     | 0.8128 | 0.8077  |
+| WHU Building             |     0.8877     | 0.9492 | 0.9403  |
+
+Numbers are mIoU. Full per-class IoU and overall accuracy: see [`evaluation_results.md`](evaluation_results.md).
+
+---
 
 ## Setup
 
-1. Install this repo dependencies (`requirements.txt`)
-2. SAM3 and PEFT code live **inside the repo**: `sam3/` (model + assets) and `peft/` (LoRA, linear probing, and wrappers). No external path is required.
+```bash
+git clone <this-repo> sam3-peft && cd sam3-peft
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+# Install PyTorch matching your CUDA, e.g.:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+The vendored Meta SAM 3 model and BPE assets live inside the repo (`sam3/` + `sam3/assets/`); no external SAM-3 install is required.
+
+Set `dataset.root` in each config to the local path of your dataset before running. Optional: set `model.sam3_checkpoint` and `model.bpe_path` to override the bundled defaults.
 
 ## Train
 
 ```bash
 python train.py --config configs/sam3_lora_potsdam.yaml
+# Override GPU from CLI:
+python train.py --config configs/sam3_lora_potsdam.yaml --gpu 1
 ```
+
+Each run writes to `experiments/<experiment_name>_<timestamp>/`:
+
+- `train.log` — full stdout / stderr
+- `best.pth`, `last.pth`, `epoch_*.pth` — checkpoints
+- `tb_logs/` — TensorBoard scalars
+- `training_summary.txt` — final mIoU, OA, peak GPU memory, wall-clock time
 
 ## Evaluate
 
 ```bash
 python test.py --config configs/sam3_lora_potsdam.yaml \
-  --checkpoint experiments/sam3_lora_potsdam/best.pth
+  --checkpoint experiments/<run>/best.pth
 ```
 
-## Evaluate with test-time augmentation (TTA)
+Saves an `eval_<timestamp>/eval.log` with per-class IoU, mIoU, OA. Pass `--save_preds` to write per-image prediction PNGs. Ten random side-by-side `image | gt | pred` panels are always saved under `eval_<timestamp>/visualizations/`.
 
-Stronger metrics by merging predictions over 8 views (D4: identity, 90°/180°/270° rotations, horizontal flip and combinations):
+## Evaluate with TTA
+
+D4 test-time augmentation (8 views: identity + 90°/180°/270° rotations + h-flip combinations, merged by mean of softmax logits):
 
 ```bash
 python test_tta.py --config configs/sam3_lora_potsdam.yaml \
-  --checkpoint experiments/sam3_lora_potsdam/best.pth
+  --checkpoint experiments/<run>/best.pth
 ```
 
-## One-command train + eval
+## One-command train + evaluate
 
 ```bash
 ./train.sh configs/sam3_lora_potsdam.yaml
 ```
 
+## Confusion matrix + IoU figures
+
+```bash
+python scripts/compute_confusion_matrix.py \
+  --config configs/sam3_adapter_uavid.yaml \
+  --checkpoint experiments/<run>/best.pth \
+  --output_dir experiments/confusion_matrices/uavid_adapter \
+  --title "UAVid / Adapter"
+```
+
+Saves `confusion.npy` (raw counts, including ignore), `classes.txt`, and a side-by-side row-normalised confusion matrix + per-class IoU bar chart. To re-style the plot without re-running the model, use `scripts/replot_confusion_matrix.py`.
+
+For per-method precision-recall scatter plots with IoU iso-contours (UAVid):
+
+```bash
+python scripts/plot_precision_recall_scatter.py
+```
+
+---
+
 ## Project layout
 
-- `sam3/` — SAM3 model package (model_builder, `sam3/assets` for BPE). No external path.
-- `peft/` — All PEFT methods and SAM3 wrappers:
-  - `peft/lora.py` — Generic LoRA layers and `apply_lora_to_model` (model-agnostic).
-  - `peft/sam3_lora.py` — SAM3 + LoRA + segmentation head (uses `peft.lora`).
-  - `peft/sam3_linear_probing.py` — Frozen SAM3 + linear head.
-  - (future) `peft/adapter.py`, `peft/sam3_adapter.py` for adapter method.
-- `configs/` — Set `dataset.root` and optional `model.sam3_checkpoint` / `model.bpe_path` (null = in-repo defaults).
-- `utils/tta.py` — Test-time augmentation (D4) and `run_tta()` for segmentation.
+```
+.
+├── train.py / test.py / test_tta.py / train.sh    # Entry points
+├── datasets.py                                    # All dataset loaders + create_dataset(...)
+├── peft/                                          # PEFT wrappers
+│   ├── lora.py             # generic LoRA layers
+│   ├── sam3_lora.py
+│   ├── sam3_linear_probing.py
+│   ├── adapter.py          # generic adapter / FFT prompt generator
+│   └── sam3_adapter.py
+├── sam3/                                          # Vendored Meta SAM 3 (model + BPE assets)
+├── configs/                                       # 21 YAML configs (3 methods × 7 datasets)
+├── utils/
+│   ├── config.py           # YAML loader with attribute access
+│   ├── losses.py           # Dice loss
+│   ├── tta.py              # D4 test-time augmentation
+│   └── run_log.py          # Timestamped run dirs + tee logging
+├── scripts/                                       # Analysis & figure helpers
+│   ├── compute_confusion_matrix.py
+│   ├── replot_confusion_matrix.py
+│   ├── plot_precision_recall_scatter.py
+│   ├── per_sequence_human_iou.py                  # UAVid debug (per-seq breakdown)
+│   ├── extract_evaluation_tables.py               # Build evaluation_results.md from logs
+│   ├── render_evaluation_pdf.py                   # Build evaluation_results.pdf
+│   ├── export_thesis_figures.py                   # Pixel-perfect image | overlay panels
+│   ├── plot_pixel_distribution.py                 # Class-balance plots
+│   └── split_train_val_test.py                    # MA Buildings/Roads/WHU re-splitter
+├── experiments/                                   # Created by train.py / test.py (gitignored)
+└── pre_weight/                                    # Pretrained SAM weights (gitignored)
+```
+
+## Configs
+
+There are 21 configs in `configs/` (one per `{method × dataset}`). All follow the same shape:
+
+```yaml
+experiment:
+  name: sam3_lora_potsdam
+  output_dir: experiments
+  seed: 1337
+  gpu: "0"
+
+dataset:
+  type: potsdam            # potsdam | vaihingen | uavid | loveda
+                           # massachusetts_buildings | massachusetts_roads | whu_building
+  root: /path/to/dataset
+  image_size: 1008
+  num_classes: 6
+  augment: true
+  exclude_classes: []
+
+model:
+  method: sam3_lora        # sam3_lora | sam3_linear_probing | sam3_adapter
+  sam3_checkpoint: null    # null = use bundled
+  bpe_path: null
+  rank: 8                  # LoRA-only
+  alpha: 16                # LoRA-only
+  dropout: 0.0             # LoRA-only
+  # sam3_adapter-only:
+  scale_factor: 32
+  input_type: fft
+  freq_nums: 0.25
+  prompt_type: highpass
+  tuning_stage: "1234"
+  handcrafted_tune: true
+  embedding_tune: true
+  adaptor: adaptor
+
+training:
+  epochs: 50
+  batch_size: 24
+  num_workers: 4
+  lr: 3.0e-4
+  weight_decay: 0.01
+  warmup_epochs: 2
+  grad_clip_norm: 1.0
+  amp: true
+  save_every: 5
+  val_every: 1
+  log_every: 20
+  early_stopping_patience: 10
+
+resume:
+  checkpoint: null
+  epoch: 0
+```
+
+The only field that *must* be set per machine is `dataset.root`.
+
+---
+
+## Augmentations
+
+Joint image+mask augmentations (training only, [`datasets.py`](datasets.py) → `_augment`):
+
+- horizontal flip (p=0.5)
+- vertical flip (p=0.5) — disabled for UAVid (oblique imagery)
+- 90° / 180° / 270° rotation (uniform from {0,1,2,3})
+- brightness, contrast, saturation jitter ±15 % (each p=0.5)
+
+## Loss
+
+Cross-entropy + Dice (1:1), with `ignore_index` honoured. Implementation: `utils/losses.py`.
+
+---
+
+## Acknowledgements & licenses
+
+- **`sam3/` is vendored Meta SAM 3 code** and is © Meta Platforms, Inc. — used here under Meta's SAM 3 release terms. See file headers for license notices.
+- The adapter implementation in `peft/adapter.py` / `peft/sam3_adapter.py` is adapted from the SAM-Adapter line of work (Chen et al., "SAM-Adapter: Adapting Segment Anything in Underperformed Scenes").
+- LoRA layers in `peft/lora.py` follow the formulation from Hu et al., "LoRA: Low-Rank Adaptation of Large Language Models" (2021).
+
+The first-party code in this repository (entry points, `peft/` PEFT wrappers, `datasets.py`, `utils/`, `scripts/`, `configs/`) is released under the MIT license — see `LICENSE` if present, otherwise the wrapper code is provided as-is for research and educational use.
+
+## Citation
+
+If you use this code, please cite the upstream works (SAM 3, LoRA, SAM-Adapter) and link back to this repository.

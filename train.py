@@ -38,11 +38,13 @@ from utils.run_log import setup_run_log, timestamp
 parser = argparse.ArgumentParser(description="SAM3 PEFT training")
 parser.add_argument("--config", type=str, required=True,
                     help="Path to YAML config file")
+parser.add_argument("--gpu", type=str, default=None,
+                    help="GPU id (overrides config, e.g. --gpu 1)")
 cli = parser.parse_args()
 
 cfg = load_config(cli.config)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.experiment.gpu)
+os.environ["CUDA_VISIBLE_DEVICES"] = cli.gpu if cli.gpu is not None else str(cfg.experiment.gpu)
 
 exp_dir = setup_run_log(
     cfg.experiment.output_dir,
@@ -346,7 +348,7 @@ path = os.path.join(exp_dir, "last.pth")
 model.save_parameters(path)
 writer.close()
 
-# ---------- Training summary (thesis / reporting) ----------
+# ---------- Training summary ----------
 # OA = Overall Accuracy: fraction of (non-ignore) pixels predicted correctly.
 training_elapsed_s = time.perf_counter() - training_start_time
 peak_mem_mb = torch.cuda.max_memory_allocated() / (1024 ** 2) if torch.cuda.is_available() else 0.0
@@ -393,7 +395,7 @@ for line in summary_lines:
     logging.info(line)
 print("\n" + "\n".join(summary_lines) + "\n")
 
-# Write same summary to a dedicated file for thesis / scripts
+# Write same summary to a dedicated file for downstream scripts
 summary_path = os.path.join(exp_dir, "training_summary.txt")
 with open(summary_path, "w", encoding="utf-8") as f:
     f.write("\n".join(summary_lines) + "\n")
