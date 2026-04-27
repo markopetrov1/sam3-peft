@@ -30,6 +30,7 @@ env/
 pre_weight/
 experiments/
 predictions/
+uavid_confusion_matrices/
 *.pth
 *.pt
 
@@ -43,5 +44,8 @@ tb_logs/
 .DS_Store
 Thumbs.db
 
-
+# Per-user helper / generated assets under scripts/
+scripts/SCP_COMMANDS.txt
+scripts/*_thesis_figures/
+scripts/*_figures/
 scripts/
