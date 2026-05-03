@@ -54,6 +54,39 @@ Numbers are mIoU. Full per-class IoU and overall accuracy: see [`evaluation_resu
 
 ---
 
+## Pre-trained weights
+
+Best-checkpoint weights for all 21 runs (3 methods × 7 datasets) are available on Google Drive:
+
+**[Download weights (Google Drive)](https://drive.google.com/drive/folders/1CII_0gT69e2aqylGJUG9XZxPQ9ot6Pfa?usp=sharing)**
+
+The folder is organised as:
+
+```
+sam3_peft_weights/
+├── linear_probing/          # ~8.8 MB each
+│   ├── potsdam.pth
+│   ├── vaihingen.pth
+│   ├── uavid.pth
+│   ├── loveda.pth
+│   ├── massachusetts_buildings.pth
+│   ├── massachusetts_roads.pth
+│   └── whu_building.pth
+├── lora/                    # ~27 MB each
+│   └── ...
+└── adapter/                 # ~1.4 MB each
+    └── ...
+```
+
+Each file is the `best.pth` for that run (best validation mIoU checkpoint). To evaluate with a downloaded weight:
+
+```bash
+python test.py --config configs/sam3_lora_potsdam.yaml \
+  --checkpoint /path/to/sam3_peft_weights/lora/potsdam.pth
+```
+
+---
+
 ## Setup
 
 ```bash
@@ -107,24 +140,6 @@ python test_tta.py --config configs/sam3_lora_potsdam.yaml \
 ./train.sh configs/sam3_lora_potsdam.yaml
 ```
 
-## Confusion matrix + IoU figures
-
-```bash
-python scripts/compute_confusion_matrix.py \
-  --config configs/sam3_adapter_uavid.yaml \
-  --checkpoint experiments/<run>/best.pth \
-  --output_dir experiments/confusion_matrices/uavid_adapter \
-  --title "UAVid / Adapter"
-```
-
-Saves `confusion.npy` (raw counts, including ignore), `classes.txt`, and a side-by-side row-normalised confusion matrix + per-class IoU bar chart. To re-style the plot without re-running the model, use `scripts/replot_confusion_matrix.py`.
-
-For per-method precision-recall scatter plots with IoU iso-contours (UAVid):
-
-```bash
-python scripts/plot_precision_recall_scatter.py
-```
-
 ---
 
 ## Project layout
@@ -146,16 +161,6 @@ python scripts/plot_precision_recall_scatter.py
 │   ├── losses.py           # Dice loss
 │   ├── tta.py              # D4 test-time augmentation
 │   └── run_log.py          # Timestamped run dirs + tee logging
-├── scripts/                                       # Analysis & figure helpers
-│   ├── compute_confusion_matrix.py
-│   ├── replot_confusion_matrix.py
-│   ├── plot_precision_recall_scatter.py
-│   ├── per_sequence_human_iou.py                  # UAVid debug (per-seq breakdown)
-│   ├── extract_evaluation_tables.py               # Build evaluation_results.md from logs
-│   ├── render_evaluation_pdf.py                   # Build evaluation_results.pdf
-│   ├── export_thesis_figures.py                   # Pixel-perfect image | overlay panels
-│   ├── plot_pixel_distribution.py                 # Class-balance plots
-│   └── split_train_val_test.py                    # MA Buildings/Roads/WHU re-splitter
 ├── experiments/                                   # Created by train.py / test.py (gitignored)
 └── pre_weight/                                    # Pretrained SAM weights (gitignored)
 ```
