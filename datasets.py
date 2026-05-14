@@ -301,13 +301,25 @@ class VaihingenDataset(SegmentationDataset):
 
 class UAVidDataset(SegmentationDataset):
     """
-    UAVid — 8-class UAV semantic segmentation.
+    UAVid — 8 annotated classes, 7 evaluated.
 
     High-resolution UAV imagery (4K), urban street scenes. Train/val/test splits
     as provided by the dataset.
 
-    Annotation encoding: pixel value = class ID
-        0 = unlabeled (ignore), 1–8 = classes
+    Annotation encoding: pixel value = class ID, in the official UAVid
+    label-ID order:
+        0 = background clutter   — excluded from training/eval (IGNORE_INDEX)
+        1 = building
+        2 = road
+        3 = tree
+        4 = low vegetation
+        5 = moving car
+        6 = static car
+        7 = human
+
+    Background clutter (value 0) is excluded from training and evaluation,
+    consistent with the common UAVid protocol — so UAVid is effectively a
+    7-class benchmark here.
 
     Dataset structure (split-first layout):
         root/
@@ -332,15 +344,20 @@ class UAVidDataset(SegmentationDataset):
     IGNORE_INDEX = 0
     NUM_CLASSES = 8
 
+    # Keys 1-7 are the evaluated classes, in official UAVid label-ID order.
+    # Key 8 is an unused placeholder — no pixel in the data ever has value 8.
+    # It is kept only so NUM_CLASSES stays 8 (a 9-channel head), which keeps
+    # checkpoints trained before this label-mapping fix loadable as-is.
+    # Background clutter is pixel value 0 -> IGNORE_INDEX (excluded).
     ID2LABEL: Dict[int, str] = {
         1: "building",
         2: "road",
-        3: "static car",
-        4: "tree",
-        5: "low vegetation",
-        6: "human",
-        7: "moving car",
-        8: "background clutter",
+        3: "tree",
+        4: "low vegetation",
+        5: "moving car",
+        6: "static car",
+        7: "human",
+        8: "unused",
     }
 
 
