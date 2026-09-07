@@ -99,7 +99,16 @@ pip install -r requirements.txt
 
 The vendored Meta SAM 3 model and BPE assets live inside the repo (`sam3/` + `sam3/assets/`); no external SAM-3 install is required.
 
-Set `dataset.root` in each config to the local path of your dataset before running. Optional: set `model.sam3_checkpoint` and `model.bpe_path` to override the bundled defaults.
+Set `dataset.root` in each config to the local path of your dataset before running, or leave the
+configs alone and export `SAM3_DATA_ROOT`, which resolves each config's dataset directory name
+underneath it:
+
+```bash
+export SAM3_DATA_ROOT=/path/to/datasets   # expects potsdam_mmseg/, WHU/, uavid/, ... underneath
+```
+
+Optional: set `model.sam3_checkpoint` and `model.bpe_path` to override the bundled defaults. The
+SAM 3 backbone weights are downloaded from the `facebook/sam3` HuggingFace repository on first run.
 
 ## Train
 
@@ -141,6 +150,35 @@ python test_tta.py --config configs/sam3_lora_potsdam.yaml \
 ```
 
 ---
+
+## Analysis scripts
+
+These reproduce the evaluation and the protocol checks reported in the paper. None of them trains
+anything; each loads an existing `best.pth` and runs forward passes only.
+
+| Script | What it does |
+|--------|--------------|
+| `scripts/reevaluate.py` | Re-scores a checkpoint at **native ground-truth resolution** as well as at the 1008×1008 working resolution, and writes per-image confusion matrices plus a boundary-band / interior decomposition. `--score-ignore-channel` scores channel 0 as a class, which yields UAVid's 8-class (clutter-included) mIoU. `--band-swap` runs the input-channel ablations. |
+| `scripts/uncertainty_analysis.py` | Image-level bootstrap confidence intervals and paired permutation tests between strategies, computed from the per-image confusion matrices. Quantifies test-set sampling uncertainty only, **not** seed-to-seed training variance. |
+| `scripts/qualitative_figure.py` | Builds `image / ground truth / linear probing / LoRA / adapter` comparison figures, selecting tiles by method disagreement, worst-case IoU, or at random. |
+| `scripts/duplicate_audit.py` | Perceptual-hash near-duplicate audit between train and test splits. |
+| `scripts/calibrate_adjacency.py` | Calibrates an image-edge adjacency detector on Potsdam, where true tile adjacency is known from the filenames, and reports its power. Documents a **negative result**: the detector cannot resolve per-tile adjacency once multiple-comparison effects are controlled. |
+| `scripts/split_train_val_test.py` | The script that produced the internal Potsdam/Vaihingen train/validation partition (seed 1337). |
+| `scripts/compute_confusion_matrix.py` | Confusion matrix and per-class precision/recall plots. |
+
+Note that `scripts/` was previously excluded by `.gitignore`, so earlier clones of this repository
+did not contain any of it. That is fixed.
+
+## Dataset splits
+
+| Dataset | Split used | Provenance |
+|---------|-----------|------------|
+| ISPRS Potsdam | official test (14 orthophotos, 2016 tiles) | Official ISPRS split; train/val is an 80/20 random tile partition (seed 1337) of the 24 official training orthophotos, used only for checkpoint selection |
+| ISPRS Vaihingen | official test (17 orthophotos, 398 tiles) | as above, from the 16 official training orthophotos |
+| Massachusetts Buildings/Roads | official test (10 / 49 source images) | Official Mnih split at source-image level; each 1500×1500 image cut into a 3×3 grid of 512×512 tiles |
+| UAVid | official test (150 frames, seq21–30 & 38–42) | Official sequence split. Test ground truth has been publicly released by the dataset authors since 2023 |
+| WHU Building | **our own** 70/15/15 repartition (5732/1228/1228) | **Not** the official 4736/1036/2416 spatial split. Numbers are therefore not comparable with published WHU results |
+| LoveDA | official validation (1669 images) | Public test split is unlabelled; validation also served for checkpoint selection, so these values are optimistically biased |
 
 ## Project layout
 
