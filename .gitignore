@@ -44,8 +44,10 @@ tb_logs/
 .DS_Store
 Thumbs.db
 
-# Per-user helper / generated assets under scripts/
+# Per-user helper / generated assets under scripts/. The scripts themselves are tracked: the
+# dataset preparation, evaluation and analysis code is part of what this repository documents,
+# and a blanket ignore of scripts/ previously kept all of it out of the published repository.
 scripts/SCP_COMMANDS.txt
 scripts/*_thesis_figures/
 scripts/*_figures/
-scripts/
+scripts/__pycache__/
