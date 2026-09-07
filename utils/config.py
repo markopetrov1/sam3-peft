@@ -8,6 +8,8 @@ Usage:
     print(cfg.dataset.type)
 """
 
+import os
+
 import yaml
 from typing import Any
 
@@ -63,5 +65,13 @@ def load_config(path: str, overrides: dict = None) -> Config:
             for k in keys[:-1]:
                 d = d.setdefault(k, {})
             d[keys[-1]] = value
+
+    # The configs record dataset paths as they existed on the machine the experiments were run on.
+    # Rather than editing 21 YAML files after a move, set SAM3_DATA_ROOT to the directory that
+    # holds the datasets and the basename of the configured path is resolved underneath it.
+    data_root = os.environ.get("SAM3_DATA_ROOT")
+    if data_root and isinstance(raw.get("dataset"), dict) and raw["dataset"].get("root"):
+        raw["dataset"]["root"] = os.path.join(data_root,
+                                              os.path.basename(str(raw["dataset"]["root"]).rstrip("/")))
 
     return Config(raw)
