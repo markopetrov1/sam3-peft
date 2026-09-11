@@ -169,6 +169,29 @@ anything; each loads an existing `best.pth` and runs forward passes only.
 Note that `scripts/` was previously excluded by `.gitignore`, so earlier clones of this repository
 did not contain any of it. That is fixed.
 
+## Preprocessing
+
+`preprocessing/` holds the scripts that turn each provider's download into the tiled MMSeg-style
+layout the loaders expect, plus the script that made our internal validation split.
+
+| Script | Purpose |
+|--------|---------|
+| `prepare_potsdam.py` / `prepare_vaihingen.py` | Cut the ISPRS orthophotos into 512x512 tiles |
+| `prepare_massachusetts_buildings.py` / `prepare_massachusetts_roads.py` | Cut the 1500x1500 Mnih scenes into 512x512 tiles, taking the split from `metadata.csv` |
+| `prepare_loveda.py` | Unpack LoveDA into the MMSeg layout |
+| `make_internal_val_split.py` | Move a random 20% of the official ISPRS training tiles into a validation split (seed 1337). Test tiles are untouched |
+| `export_split_manifests.py` | Write the exact file list of every split to `splits/` |
+
+## Split manifests
+
+`splits/<dataset>/{train,val,test}.txt` lists every image used, one filename per line, with counts
+and digests in `splits/manifest_summary.json`. See [`splits/README.md`](splits/README.md).
+
+These matter most for WHU Building, whose 70/15/15 partition is **ours** rather than the official
+4736/1036/2416 spatial split, was made with an unrecorded seed, and renamed the tiles in the
+process. The manifest is the only complete record of it, and WHU results are therefore not
+comparable with published numbers on the official split.
+
 ## Dataset splits
 
 | Dataset | Split used | Provenance |

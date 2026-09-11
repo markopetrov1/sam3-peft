@@ -38,6 +38,8 @@ from datasets import create_dataset          # noqa: E402
 from peft import build_peft_model            # noqa: E402
 from utils.config import load_config         # noqa: E402
 
+SHORT = {"sam3_linear_probing": "LP", "sam3_lora": "LoRA", "sam3_adapter": "Adapter"}
+
 METHODS = [("sam3_linear_probing", "Linear probing"),
            ("sam3_lora", "LoRA"),
            ("sam3_adapter", "Adapter")]
@@ -106,6 +108,9 @@ def main() -> int:
                     choices=["disagreement", "worst", "random"])
     ap.add_argument("--names", nargs="*", default=None, help="Explicit tile filenames to render")
     ap.add_argument("--seed", type=int, default=1337)
+    ap.add_argument("--width-in", type=float, default=5.15,
+                    help="Physical width of the figure in inches, matched to the "
+                         "text width of the target journal class")
     args = ap.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
@@ -203,8 +208,18 @@ def main() -> int:
     # orthophoto, so without this the highest-disagreement tiles often all come from one scene and
     # the figure shows the same place three times.
     def scene_of(path):
-        base = os.path.basename(path)
-        return base.split("_")[0]
+        """Identifier of the scene a tile was cut from.
+
+        Naming differs per benchmark: ISPRS Potsdam and Massachusetts use two leading numeric
+        tokens for the orthophoto or source image ("6_15_2560_...", "22828930_15_0_..."), while
+        Vaihingen and UAVid use a single alphanumeric token ("area10_...", "seq42_..."). Taking
+        only the first token would merge Potsdam orthophotos 6_13 and 6_15 into one scene.
+        """
+        base = os.path.splitext(os.path.basename(path))[0]
+        parts = base.split("_")
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            return f"{parts[0]}_{parts[1]}"
+        return parts[0]
 
     keep, seen_scenes = [], set()
     for _, k, ious in scores:
@@ -221,44 +236,73 @@ def main() -> int:
         if k not in [kk for kk, _ in keep]:
             keep.append((k, ious))
 
+    # The figure is drawn at the physical width it will occupy on the page, so that the label
+    # sizes below are the sizes the reader actually sees. Drawing it wider and letting LaTeX
+    # scale it down shrinks the text with it, which is how an earlier version ended up with
+    # 4 pt column headers in a single-column journal layout.
     ncol = 2 + len(preds)
-    fig, axes = plt.subplots(len(keep), ncol, figsize=(2.35 * ncol, 2.45 * len(keep)))
+    panel_w = args.width_in / ncol
+    aspect = imgs[keep[0][0]].shape[0] / imgs[keep[0][0]].shape[1]
+    panel_h = panel_w * aspect
+
+    # Work out the legend before sizing the figure. UAVid panels are 16:9 and therefore short,
+    # so a legend allowance expressed as a fraction of figure height collapses to almost nothing
+    # and the legend lands on top of the bottom row's labels. Allowances are in inches instead.
+    present = {int(c) for g in gts for c in np.unique(g)}
+    legend_classes = [c for c in range(1, n_ch)
+                      if c in present and str(names[c]).lower() != "unused"]
+    n_leg = len(legend_classes) + 1                      # plus the excluded/ignore swatch
+    ncol_leg = 4 if n_leg > 4 else n_leg
+    leg_rows = -(-n_leg // ncol_leg)
+
+    HEADER_IN = 0.20                                     # column titles above the first row
+    XLABEL_IN = 0.15                                     # per-tile IoU beneath each row
+    LEGEND_IN = 0.145 * leg_rows + 0.06
+    # Every row carries its own IoU labels, so the gap between rows must be an absolute height,
+    # not a fraction of the panel: UAVid panels are 16:9 and short, and a proportional gap put
+    # each row's labels on top of the row below.
+    nrow = len(keep)
+    fig_h = (panel_h * nrow + XLABEL_IN * (nrow - 1)
+             + HEADER_IN + XLABEL_IN + LEGEND_IN)
+    fig, axes = plt.subplots(len(keep), ncol, figsize=(args.width_in, fig_h))
     if len(keep) == 1:
         axes = axes[None, :]
-    titles = ["Image", "Ground truth"] + [lbl for m, lbl in METHODS if m in preds]
+    # Short headers: at roughly one inch per panel there is no room for "Linear probing".
+    titles = ["Image", "GT"] + [SHORT[m] for m, _ in METHODS if m in preds]
 
     for r, (k, ious) in enumerate(keep):
         panels = [imgs[k], colourise(gts[k], palette)] + \
                  [colourise(preds[m][k], palette) for m, _ in METHODS if m in preds]
         for c, panel in enumerate(panels):
             ax = axes[r, c]
-            ax.imshow(panel)
+            ax.imshow(panel, interpolation="nearest")
             ax.set_xticks([]); ax.set_yticks([])
             for sp in ax.spines.values():
-                sp.set_linewidth(0.4)
+                sp.set_linewidth(0.3)
+                sp.set_color("0.5")
             if r == 0:
-                ax.set_title(titles[c], fontsize=9)
+                ax.set_title(titles[c], fontsize=7, pad=2.5)
             if c >= 2:
                 m = [mm for mm, _ in METHODS if mm in preds][c - 2]
-                ax.set_xlabel(f"IoU {ious[m]:.3f}", fontsize=7.5, labelpad=1.5)
-        axes[r, 0].set_ylabel(os.path.basename(chosen[k][0])[:18], fontsize=6.5)
+                ax.set_xlabel(f"{ious[m]:.3f}", fontsize=6, labelpad=1.0)
+        axes[r, 0].set_ylabel(scene_of(chosen[k][0]), fontsize=6, labelpad=2)
 
     # Outline every swatch: several palettes use white or near-white for a class, which would
     # otherwise be invisible against the figure background.
-    # Skip channels that carry no ground truth anywhere in the panel, which removes UAVid's inert
-    # ninth channel from the legend rather than presenting it as a class.
-    present = {int(c) for g in gts for c in np.unique(g)}
     handles = [mpatches.Patch(facecolor=np.array(palette[c]) / 255, edgecolor="0.35",
-                              linewidth=0.6, label=names[c])
-               for c in range(1, n_ch)
-               if c in present and str(names[c]).lower() != "unused"]
+                              linewidth=0.5, label=names[c]) for c in legend_classes]
     handles.append(mpatches.Patch(facecolor=np.array(palette[0]) / 255, edgecolor="0.35",
-                                  linewidth=0.6, label="excluded (ignore)"))
-    fig.legend(handles=handles, loc="lower center", ncol=min(len(handles), 8),
-               fontsize=7.5, frameon=False, bbox_to_anchor=(0.5, -0.005))
-    fig.tight_layout(rect=[0, 0.045, 1, 1])
+                                  linewidth=0.5, label="excluded"))
+    bottom = LEGEND_IN / fig_h
+    fig.legend(handles=handles, loc="lower center", ncol=ncol_leg, fontsize=6,
+               frameon=False, handlelength=1.1, handleheight=1.0, columnspacing=1.0,
+               borderaxespad=0.0, bbox_to_anchor=(0.5, 0.0))
+    fig.subplots_adjust(left=0.045, right=0.995,
+                        top=1.0 - HEADER_IN / fig_h,
+                        bottom=bottom + XLABEL_IN / fig_h,
+                        wspace=0.04, hspace=XLABEL_IN / panel_h)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-    fig.savefig(args.out, dpi=220, bbox_inches="tight")
+    fig.savefig(args.out, dpi=400)
     print(f"wrote {args.out}")
     for k, ious in keep:
         print(f"  {os.path.basename(chosen[k][0]):40s} " +
