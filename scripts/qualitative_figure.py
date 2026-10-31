@@ -108,6 +108,9 @@ def main() -> int:
                     choices=["disagreement", "worst", "random"])
     ap.add_argument("--names", nargs="*", default=None, help="Explicit tile filenames to render")
     ap.add_argument("--seed", type=int, default=1337)
+    ap.add_argument("--input-mode", default="stretch", choices=["stretch", "tiled"],
+                    help="tiled: cut each image into the 512x512 training tile grid and average the "
+                         "overlapping logits (the revised UAVid protocol, scripts/revision)")
     ap.add_argument("--width-in", type=float, default=5.15,
                     help="Physical width of the figure in inches, matched to the "
                          "text width of the target journal class")
@@ -170,6 +173,27 @@ def main() -> int:
                 raw = np.array(PILImage.open(ann_path))
                 if raw.ndim == 3:
                     raw = raw[:, :, 0]
+                if args.input_mode == "tiled":
+                    from scripts.revision.eval_conventions import TILE, tile_grid
+                    full = np.array(pil)
+                    h, w = full.shape[:2]
+                    acc = torch.zeros((n_ch, h, w), device="cuda")
+                    cnt = torch.zeros((1, h, w), device="cuda")
+                    boxes = tile_grid(h, w)
+                    for s0 in range(0, len(boxes), 8):
+                        chunk = boxes[s0 : s0 + 8]
+                        xs = [torch.from_numpy(np.array(PILImage.fromarray(full[y0:y1, x0:x1]).resize(
+                            (ds_cfg.image_size, ds_cfg.image_size), PILImage.BILINEAR),
+                            dtype=np.float32)).permute(2, 0, 1) for (x0, y0, x1, y1) in chunk]
+                        with torch.amp.autocast("cuda", enabled=True):
+                            low = model(torch.stack(xs).cuda(), n_cls > 2,
+                                        ds_cfg.image_size)["low_res_logits"].float()
+                        up = F.interpolate(low, size=(TILE, TILE), mode="bilinear", align_corners=False)
+                        for kk, (x0, y0, x1, y1) in enumerate(chunk):
+                            acc[:, y0:y1, x0:x1] += up[kk]
+                            cnt[:, y0:y1, x0:x1] += 1
+                    out.append((acc / cnt).argmax(dim=0).cpu().numpy().astype(np.uint8))
+                    continue
                 arr = np.array(pil.resize((ds_cfg.image_size, ds_cfg.image_size),
                                           PILImage.BILINEAR), dtype=np.float32)
                 x = torch.from_numpy(arr).permute(2, 0, 1)[None].cuda()

@@ -176,7 +176,11 @@ optimizer = torch.optim.AdamW(
 )
 
 ce_loss_fn = CrossEntropyLoss(ignore_index=ignore_index)
-dice_loss_fn = DiceLoss(num_output_channels)
+# loss.dice_mask_ignored: false (default, every reported run) keeps the original Dice term, in which
+# ignored pixels are the target of channel 0; true restricts Dice to the pixels the cross-entropy uses.
+_loss_cfg = getattr(cfg, "loss", None)
+dice_mask_ignored = bool(getattr(_loss_cfg, "dice_mask_ignored", False)) if _loss_cfg else False
+dice_loss_fn = DiceLoss(num_output_channels, ignore_index=ignore_index if dice_mask_ignored else None)
 
 
 def get_lr(step):

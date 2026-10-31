@@ -50,7 +50,16 @@ Best validation checkpoint, evaluated on the held-out test split (LoveDA reports
 | Massachusetts Roads      |     0.7048     | 0.8128 | 0.8077  |
 | WHU Building             |     0.8877     | 0.9492 | 0.9403  |
 
-Numbers are mIoU. Full per-class IoU and overall accuracy: see [`evaluation_results.md`](evaluation_results.md).
+Numbers are mIoU at the 1008x1008 working resolution, with each UAVid test frame resized whole to the
+network input. Full per-class IoU and overall accuracy: see [`evaluation_results.md`](evaluation_results.md).
+
+**Revised protocol (journal revision).** The paper now scores every benchmark at native ground-truth
+resolution and scores UAVid by tiled inference: each 4K test frame is cut into the same 40-tile
+512x512 grid as the training split, every tile is processed exactly as in training, and overlapping
+logits are averaged. Resizing whole frames presents objects four to eight times smaller than in
+training. Under tiled inference the UAVid mIoU (7 classes) is 0.6485 / 0.7707 / 0.7906 for linear
+probing / LoRA / adapter, and 0.5017 / 0.7010 / 0.7193 on the official 8-class protocol. The scripts
+in [`scripts/revision/`](scripts/revision) reproduce every number added in the revision.
 
 ---
 
@@ -169,6 +178,23 @@ anything; each loads an existing `best.pth` and runs forward passes only.
 Note that `scripts/` was previously excluded by `.gitignore`, so earlier clones of this repository
 did not contain any of it. That is fixed.
 
+### Analyses added in the journal revision (`scripts/revision/`)
+
+None of these trains a model or updates a parameter.
+
+| Script | What it does |
+|--------|--------------|
+| `eval_conventions.py` | One inference pass per checkpoint, storing per-image confusion matrices under every scoring convention: primary, argmax restricted to the evaluated classes, UAVid 8-class, ISPRS with clutter kept as a class (the convention of the UNetFormer code), boundary bands of 1, 3 and 7 px, pixels counted once across overlapping tiles, and the ISPRS complete (non-eroded) reference. Input handling `stretch`, `tiled` or `letterbox`, and input-channel perturbations (`--band-op`). |
+| `stats_cluster.py` | Cluster bootstrap (orthophoto / source image / sequence) and cluster-level sign-flip randomisation tests on mean IoU, exact when there are at most 20 clusters and Monte Carlo (2x10^5 assignments) otherwise. |
+| `matched_stats.py` | The same intervals and tests for LoRA minus adapter at the latest epoch at which both runs saved a checkpoint (matched training budget). |
+| `stride_oracle.py` | Model-free stride-14 reference: the true class composition of every 72x72 output cell, resampled like the logits, scored in the boundary band and interior. |
+| `profile_memory.py` | Peak memory of one forward/backward pass (no parameter update) at batch 1/2/4 for LoRA, the adapter and adapter variants, locating the adapter's extra training memory. |
+| `bench_inference.py` | Repeated inference timing of linear probing, LoRA unmerged, LoRA merged into the frozen weights, and the adapter. All networks stay resident and take turns on every batch, so on a shared GPU the per-batch time ratios are paired; reports the median ratio with a bootstrap interval, and checks merged against unmerged predictions. |
+| `loveda_selection.py` | Fixed-epoch and split-half analysis of checkpoint-selection bias on LoveDA. |
+| `make_eroded_tiles.py` | Cuts the eroded and complete ISPRS references into the test tiles and checks which one the stored annotations are. |
+| `predict_loveda_test.py` | Writes LoveDA test predictions in the format of the official evaluation server. |
+| `make_digest.py`, `audit_numbers.py` | Collect every reported quantity into one digest and check the manuscript's numbers against it. |
+
 ## Preprocessing
 
 `preprocessing/` holds the scripts that turn each provider's download into the tiled MMSeg-style
@@ -199,7 +225,7 @@ comparable with published numbers on the official split.
 | ISPRS Potsdam | official test (14 orthophotos, 2016 tiles) | Official ISPRS split; train/val is an 80/20 random tile partition (seed 1337) of the 24 official training orthophotos, used only for checkpoint selection |
 | ISPRS Vaihingen | official test (17 orthophotos, 398 tiles) | as above, from the 16 official training orthophotos |
 | Massachusetts Buildings/Roads | official test (10 / 49 source images) | Official Mnih split at source-image level; each 1500×1500 image cut into a 3×3 grid of 512×512 tiles |
-| UAVid | official test (150 frames, seq21–30 & 38–42) | Official sequence split. Test ground truth has been publicly released by the dataset authors since 2023 |
+| UAVid | official test (150 frames, seq21–30 & 38–42) | Official sequence split. The test ground truth has since been released publicly by the dataset authors (news section of https://uavid.nl/) |
 | WHU Building | **our own** 70/15/15 repartition (5732/1228/1228) | **Not** the official 4736/1036/2416 spatial split. Numbers are therefore not comparable with published WHU results |
 | LoveDA | official validation (1669 images) | Public test split is unlabelled; validation also served for checkpoint selection, so these values are optimistically biased |
 
@@ -297,4 +323,13 @@ Joint image+mask augmentations (training only, [`datasets.py`](datasets.py) → 
 
 ## Loss
 
-Cross-entropy + Dice (1:1), with `ignore_index` honoured. Implementation: `utils/losses.py`.
+Cross-entropy + Dice (1:1). Implementation: `utils/losses.py`. The cross-entropy discards pixels with
+the ignore label. The Dice term, as used for every reported run, does not: its one-hot target is built
+from the raw label map, so ignored pixels are the positive target of output channel 0 (on ISPRS the
+eroded boundary margin and clutter, on UAVid clutter, on LoveDA no-data; the binary datasets have no
+ignored pixels). Set `loss: {dice_mask_ignored: true}` in a config to restrict the Dice term to the
+pixels the cross-entropy uses; the default reproduces the reported runs.
+
+ISPRS annotations are the boundary-eroded reference distributed by ISPRS (`*_noBoundary`), for
+training and testing. The Potsdam tiles were cut from the benchmark's three-band near-infrared product,
+so the Potsdam input is near-infrared, green and blue, not true colour.
