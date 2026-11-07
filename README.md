@@ -191,6 +191,7 @@ None of these trains a model or updates a parameter.
 | `profile_memory.py` | Peak memory of one forward/backward pass (no parameter update) at batch 1/2/4 for LoRA, the adapter and adapter variants, locating the adapter's extra training memory. |
 | `bench_inference.py` | Repeated inference timing of linear probing, LoRA unmerged, LoRA merged into the frozen weights, and the adapter. All networks stay resident and take turns on every batch, so on a shared GPU the per-batch time ratios are paired; reports the median ratio with a bootstrap interval, and checks merged against unmerged predictions. |
 | `loveda_selection.py` | Fixed-epoch and split-half analysis of checkpoint-selection bias on LoveDA. |
+| `nir_separability.py` | Image statistics behind the different sensitivity to the near-infrared channel on Potsdam and Vaihingen: class shares, per-channel and logistic-regression separability of vegetation, and the correlation of near-infrared with its replacement channel. |
 | `make_eroded_tiles.py` | Cuts the eroded and complete ISPRS references into the test tiles and checks which one the stored annotations are. |
 | `predict_loveda_test.py` | Writes LoveDA test predictions in the format of the official evaluation server. |
 | `make_digest.py`, `audit_numbers.py` | Collect every reported quantity into one digest and check the manuscript's numbers against it. |
